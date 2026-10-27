@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.usage-rail</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/ABS/PATH/TO/usage-rail/launch-agent.sh</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/ABS/PATH/TO/usage-rail</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>/Users/YOU</string>
+		<key>USAGE_RAIL_ROOT</key>
+		<string>/ABS/PATH/TO/usage-rail</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>8</integer>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>StandardOutPath</key>
+	<string>/Users/YOU/.cache/usage-rail/launchd.out</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/YOU/.cache/usage-rail/launchd.err</string>
+</dict>
+</plist>
