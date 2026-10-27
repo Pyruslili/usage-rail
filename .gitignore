@@ -1,3 +1,8 @@
 .build/
 .DS_Store
-*.tmp
+mac/.build/
+mac/local.py
+phone/build/
+phone/DerivedData/
+phone/**/xcuserdata/
+*.xcuserstate

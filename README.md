@@ -1,30 +1,10 @@
 # Usage Rail
 
-一条贴在屏幕右边的粉缝。平时收着，鼠标靠上去才展开。读的是这台 Mac 上已经登录的订阅。
+一条粉缝，两处都能用。要哪边拿哪边。
 
-A pink seam on the right edge. It stays shut until you lean in. macOS 14+.
-
-| Ring | Account |
+| 文件夹 | 在哪 |
 |---|---|
-| GPT | `~/.codex/auth.json` |
-| Grok | `~/.grok/auth.json` |
-| Kimi | `~/.kimi/credentials/kimi-code.json` |
-| Claude | `~/.claude/.credentials.json`, or a macOS keychain item named `Claude Code-credentials` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
+| [`mac`](mac/) | 贴在 Mac 屏幕右边。鼠标靠上去才展开 |
+| [`phone`](phone/) | 同一排圆环，放进口袋 |
 
-GPT and Claude draw a 5-hour ring and a weekly ring. Grok is weekly. Kimi is monthly, and the card also shows the 5-hour window. DeepSeek shows the account balance.
-
-```sh
-swift build -c release --product UsageRail
-./launch.sh
-```
-
-`install/com.usage-rail.plist.example` is the login item. Copy it to `~/Library/LaunchAgents/com.usage-rail.plist`, replace the paths, then:
-
-```sh
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.usage-rail.plist
-```
-
-Numbers are written to `~/.cache/usage-rail/usage.json`.
-
-手机上的圆环是另一个仓库：[usage-rail-phone](https://github.com/Pyruslili/usage-rail-phone)。它不采集，只看这份文件，或者一个返回同样内容的地址。
+桌面自己去读这台机器上已经登录的订阅，把数字写进 `~/.cache/usage-rail/usage.json`。手机不登录。把那份文件带过去，或者填一个返回同样内容的地址。
