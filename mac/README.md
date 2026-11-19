@@ -28,3 +28,5 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.usage-rail.plist
 Numbers are written to `~/.cache/usage-rail/usage.json`.
 
 手机上的圆环在 [`phone`](../phone)。它不采集，只看这份文件，或者一个返回同样内容的地址。
+
+缓存抽屉贴在这条粉缝下面，不占订阅槽。构建和安装说明在 [`CACHE_DRAWER.md`](CACHE_DRAWER.md)。没有授权之前，不要重新安装或重启正在跑的 Usage Rail。

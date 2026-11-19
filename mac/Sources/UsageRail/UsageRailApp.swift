@@ -863,6 +863,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     var localMonitor: Any?
     var globalMonitor: Any?
     var pathMonitor: NWPathMonitor?
+    /// Separate right-edge drawer. It does not add a seventh usage slot.
+    private let cacheCompanion = CacheCompanion()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -910,6 +912,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.store.refreshAddresses()
             }
         }
+        cacheCompanion.attach(railPanel: railPanel)
+        cacheCompanion.start()
     }
 
     private func watchPath() {
