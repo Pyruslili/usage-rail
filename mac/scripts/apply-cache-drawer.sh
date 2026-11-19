@@ -136,7 +136,9 @@ for rel in manifest["preimage"]:
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
 
-for rel, expected in manifest["postimage"].items():
+to_copy = dict(manifest["postimage"])
+to_copy.update(manifest["new_files"])
+for rel, expected in to_copy.items():
     src = files / rel
     dest = root / rel
     dest.parent.mkdir(parents=True, exist_ok=True)

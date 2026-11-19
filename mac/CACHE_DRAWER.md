@@ -44,8 +44,12 @@ All optional, all local:
 |---|---|
 | `NOXBUILD_RUNTIME` | Runtime root. Wins over the settings file. |
 | `~/.cache/usage-rail/cache-companion.json` | Optional file below. The app reads it and does not create it. |
+| `{runtimeRoot}/state/active_session.json` | Session id and transcript path. The transcript must stay inside the runtime root. |
+| `NOX_VERTEX_OBSERVE_LOG` | Defaults to `~/Library/Logs/nox-vertex-observe.jsonl`. |
+| `NOX_PREFIX_FINGERPRINT_LOG` | Defaults to `~/Library/Logs/nox-prefix-fingerprints.jsonl`. |
+| `NOX_SIWC_LOG` | Defaults to `~/Library/Logs/nox-openai-siwc.log`. |
 
-The file has one key:
+`cache-companion.json` has one key:
 
 ```json
 {
@@ -54,10 +58,6 @@ The file has one key:
 ```
 
 Create the directory as mode `0700` and the file as mode `0600`. Leave log files and `local.py` with their existing permissions. The drawer only needs read access. A smoke check that prints counts, and not log text, is `mac/scripts/smoke-cache-drawer.py`.
-| `{runtimeRoot}/state/active_session.json` | Session id and transcript path. The transcript must stay inside the runtime root. |
-| `NOX_VERTEX_OBSERVE_LOG` | Defaults to `~/Library/Logs/nox-vertex-observe.jsonl`. |
-| `NOX_PREFIX_FINGERPRINT_LOG` | Defaults to `~/Library/Logs/nox-prefix-fingerprints.jsonl`. |
-| `NOX_SIWC_LOG` | Defaults to `~/Library/Logs/nox-openai-siwc.log`. |
 
 The drawer polls about every 3 seconds, tails new bytes, and keeps a bounded window. Vertex rotation to a single `.1` file is followed. It does not upload anything and it does not call a provider.
 
