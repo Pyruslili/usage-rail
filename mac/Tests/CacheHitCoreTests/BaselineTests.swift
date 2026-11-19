@@ -29,6 +29,7 @@ final class BaselineTests: XCTestCase {
         XCTAssertTrue(source.contains("let hover: Hovered = [.endpoint, .deepseek, .claude, .grok, .gemini, .gpt][idx]"))
         XCTAssertTrue(source.contains("case .kimi: cardPanel.orderOut(nil); return"))
         XCTAssertTrue(source.contains("case .vertex: cardPanel.orderOut(nil); return"))
+        XCTAssertTrue(source.contains("full.insetBy(dx: -16, dy: -24)"))
         XCTAssertTrue(source.contains("ctx.duration = 0.34"))
         XCTAssertTrue(source.contains("deadline: .now() + 0.22"))
         let body = source.split(separator: "private var expandedBody").dropFirst().first?.split(separator: "private var railBackground").first ?? ""

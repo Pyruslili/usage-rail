@@ -483,21 +483,48 @@ final class CacheHitCoreTests: XCTestCase {
     }
 
     func testLayoutSitsBelowTheRail() {
-        let rail = CacheFrame(x: 1390, y: 200, width: 8, height: 420)
-        let collapsed = CacheLayout.frame(rail: rail, screenMaxX: 1440, visibleMinY: 0, expanded: false)
-        XCTAssertEqual(collapsed.maxX, 1440)
-        XCTAssertEqual(collapsed.width, 8)
-        XCTAssertEqual(collapsed.maxY, rail.minY - CacheLayout.gapBelowRail)
-        XCTAssertLessThan(collapsed.maxY, rail.minY)
-        let opened = CacheLayout.frame(rail: rail, screenMaxX: 1440, visibleMinY: 0, expanded: true)
-        XCTAssertEqual(opened.width, CacheLayout.expandedWidth)
-        XCTAssertEqual(opened.maxX, 1440)
-        XCTAssertLessThanOrEqual(opened.maxY, rail.minY - 8)
-        let hot = CacheLayout.hotZone(frame: opened)
-        XCTAssertLessThan(hot.maxY, rail.minY)
-        let tight = CacheLayout.frame(rail: CacheFrame(x: 0, y: 40, width: 50, height: 420), screenMaxX: 100, visibleMinY: 0, expanded: true)
-        XCTAssertEqual(tight.maxY, 32)
-        XCTAssertGreaterThanOrEqual(tight.minY, 0)
+        XCTAssertEqual(CacheLayout.bottomCardDrop, 65)
+        XCTAssertEqual(CacheLayout.reservedBelowRail, 81)
+        let screens: [(rail: CacheFrame, maxX: Double)] = [
+            (CacheFrame(x: 1390, y: 200, width: 8, height: 420), 1440),
+            (CacheFrame(x: 1390, y: 400, width: 50, height: 420), 1440),
+            (CacheFrame(x: 2000, y: 120, width: 50, height: 420), 2560)
+        ]
+        for sample in screens {
+            let rail = CacheFrame(
+                x: sample.maxX - CacheLayout.railExpandedWidth,
+                y: sample.rail.minY,
+                width: CacheLayout.railExpandedWidth,
+                height: CacheLayout.railHeight
+            )
+            let railHot = CacheLayout.railHotZone(rail: rail)
+            let card = CacheLayout.bottomCardFrame(rail: rail)
+            let cardHot = card.inset(by: CacheLayout.cardHoverPad)
+            for expanded in [false, true] {
+                let drawer = CacheLayout.frame(rail: rail, screenMaxX: sample.maxX, visibleMinY: 0, expanded: expanded)
+                let drawerHot = CacheLayout.hotZone(frame: drawer)
+                XCTAssertEqual(drawer.maxX, sample.maxX)
+                XCTAssertEqual(drawer.maxY, rail.minY - CacheLayout.reservedBelowRail, accuracy: 0.001)
+                XCTAssertFalse(drawer.intersects(rail))
+                XCTAssertFalse(drawer.intersects(card))
+                XCTAssertFalse(drawerHot.intersects(rail))
+                XCTAssertFalse(drawerHot.intersects(railHot))
+                XCTAssertFalse(drawerHot.intersects(card))
+                XCTAssertFalse(drawerHot.intersects(cardHot))
+                XCTAssertFalse(drawerHot.contains(rail.midX, rail.minY - 1))
+                XCTAssertTrue(railHot.contains(rail.midX, rail.minY - 1))
+                if drawer.height > 0 {
+                    XCTAssertTrue(drawerHot.contains(drawer.midX, drawer.midY))
+                    XCTAssertFalse(railHot.contains(drawer.midX, drawer.midY))
+                    XCTAssertFalse(cardHot.contains(drawer.midX, drawer.midY))
+                }
+            }
+        }
+        let tightRail = CacheFrame(x: 50, y: 40, width: 50, height: 420)
+        let tight = CacheLayout.frame(rail: tightRail, screenMaxX: 100, visibleMinY: 0, expanded: true)
+        XCTAssertEqual(tight.height, 0)
+        XCTAssertLessThanOrEqual(tight.maxY, tightRail.minY - CacheLayout.reservedBelowRail)
+        XCTAssertFalse(tight.intersects(tightRail))
         XCTAssertEqual(CacheLayout.animationDuration, 0.34)
         XCTAssertEqual(CacheLayout.collapseDelay, 0.22)
     }

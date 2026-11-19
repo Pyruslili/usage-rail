@@ -17,7 +17,9 @@ The live menu-bar binary on the Mac was built from that dirty tree on 2026-11-18
 
 ## What the drawer shows
 
-Collapsed, it is an 8pt seam, 56pt tall, 8pt below the live rail panel. Expanded, it is 308pt wide, still pinned to the right edge of the rightmost screen, and it lists user turns as local time, turn number, and model. There is no message body.
+Collapsed, it is an 8pt seam, 56pt tall. Expanded, it is 308pt wide, still pinned to the right edge of the rightmost screen, and it lists user turns as local time, turn number, and model. There is no message body.
+
+The drawer's top edge is 81pt below the rail's bottom edge. That clears the rail's unchanged 24pt hover pad and the bottom usage card (the 200pt card centered on the 70pt endpoint slot drops 65pt, plus its 8pt hover pad, plus an 8pt gap). The two hover zones do not share a point, so each seam opens and closes on its own. Slot count, slot order, and the rail's `insetBy(dx: -16, dy: -24)` are unchanged.
 
 A turn opens onto per-call rows only when Vertex `conv` equals the session id and `turn` equals `promptIndex`. Sequence is kept:
 
@@ -41,7 +43,17 @@ All optional, all local:
 | Setting | Role |
 |---|---|
 | `NOXBUILD_RUNTIME` | Runtime root. Wins over the settings file. |
-| `~/.cache/usage-rail/cache-companion.json` | `{"runtimeRoot":"..."}` only. The app reads it. It does not create it. |
+| `~/.cache/usage-rail/cache-companion.json` | Optional file below. The app reads it and does not create it. |
+
+The file has one key:
+
+```json
+{
+  "runtimeRoot": "/absolute/path/to/noxbuild-runtime"
+}
+```
+
+Create the directory as mode `0700` and the file as mode `0600`. Leave log files and `local.py` with their existing permissions. The drawer only needs read access. A smoke check that prints counts, and not log text, is `mac/scripts/smoke-cache-drawer.py`.
 | `{runtimeRoot}/state/active_session.json` | Session id and transcript path. The transcript must stay inside the runtime root. |
 | `NOX_VERTEX_OBSERVE_LOG` | Defaults to `~/Library/Logs/nox-vertex-observe.jsonl`. |
 | `NOX_PREFIX_FINGERPRINT_LOG` | Defaults to `~/Library/Logs/nox-prefix-fingerprints.jsonl`. |
@@ -66,7 +78,7 @@ That is the remaining validation. Do not `launchctl` bootstrap, kickstart, or re
 
 ## Known limits
 
-- The usage rail's existing hover pad still reaches 24pt below the rail. The cache panel's visible top is 8pt below the rail, so that pad overlaps the top of the drawer. The cache code does not change the rail's pad. Hovering the rail does not by itself open the cache.
+- The drawer sits 81pt below the rail so it clears the original hover pad and the lowest usage card. The rail's pad is still 24pt. The six slots are unchanged.
 - Joining a user chunk to `turn_completed` follows log order. There is no shared id. The session total stays labeled as a session total.
 - A large log is tailed from the end on first open, so older turns can be absent. The status line says so.
 - JSON parsing has to read each line in order to drop it. Message text, tool payloads, hashes, and raw lines are not stored and are not drawn.
