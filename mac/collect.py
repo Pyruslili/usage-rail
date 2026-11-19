@@ -753,7 +753,7 @@ def collect() -> dict[str, Any]:
         "fetched_unix": int(_now()),
         "gpt": _keep_last(fetch_codex(), (prev or {}).get("gpt") if prev else None),
         "grok": _keep_last(fetch_grok(), (prev or {}).get("grok") if prev else None),
-        "kimi": _keep_last(fetch_kimi(), (prev or {}).get("kimi") if prev else None),
+        "kimi": (prev or {}).get("kimi"),
         "claude": _keep_last(fetch_claude(), (prev or {}).get("claude") if prev else None),
         "deepseek": _keep_last(fetch_deepseek(), (prev or {}).get("deepseek") if prev else None),
     }
@@ -763,6 +763,15 @@ def collect() -> dict[str, Any]:
     tmp.replace(CACHE_PATH)
     CACHE_PATH.chmod(0o600)
     return snapshot
+
+
+def _apply_local() -> None:
+    path = Path(__file__).with_name("local.py")
+    if path.is_file():
+        exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), globals())
+
+
+_apply_local()
 
 
 def main() -> int:
