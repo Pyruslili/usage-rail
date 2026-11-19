@@ -19,7 +19,20 @@ The live menu-bar binary on the Mac was built from that dirty tree on 2026-11-18
 
 Collapsed, it is an 8pt seam, 56pt tall. Expanded, it is 308pt wide, still pinned to the right edge of the rightmost screen, and it lists user turns as local time, turn number, and model. There is no message body.
 
-The drawer's top edge is 81pt below the rail's bottom edge. That clears the rail's unchanged 24pt hover pad and the bottom usage card (the 200pt card centered on the 70pt endpoint slot drops 65pt, plus its 8pt hover pad, plus an 8pt gap). The two hover zones do not share a point, so each seam opens and closes on its own. Slot count, slot order, and the rail's `insetBy(dx: -16, dy: -24)` are unchanged.
+The drawer's top edge is 81pt below the rail's bottom edge. That clears the rail's unchanged 24pt hover pad and the bottom usage card. Slot count, slot order, and the rail's `insetBy(dx: -16, dy: -24)` are unchanged.
+
+Each row is one sent message and its first model request only. Later tool calls stay behind a tap. The top number is the weighted sum of those first requests in the loaded session, and it skips rows that are 未知.
+
+```text
+合成示例，不是真实命中率
+
+本段首呼 0% · 1 条未知
+22:17  #7   example-model-a     0%
+22:20  #8   example-model-a     未知
+22:21  #9                       等待
+```
+
+A first request is shown only when a complete Vertex final-outbound log has a clean ordered pair for that turn, or when the session log records exactly one model call. A log opened mid-file, an ambiguous request, a missing cached field, or a first 429 stays 未知 or 限流. A later hit is not promoted. GPT lines have no turn id and stay unlinked.
 
 A turn opens onto per-call rows only when Vertex `conv` equals the session id and `turn` equals `promptIndex`. Sequence is kept:
 
