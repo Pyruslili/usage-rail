@@ -83,11 +83,8 @@ def digest(path: Path) -> str:
 problems = []
 for rel, expected in manifest["untouched"].items():
     path = root / rel
-    if rel == "mac/local.py":
-        if path.exists():
-            print("local.py present; left unread")
-        else:
-            print("local.py absent; left absent")
+    if expected == "unread":
+        print(f"{rel} left unread")
         continue
     if not path.is_file():
         problems.append(f"missing untouched file {rel}")

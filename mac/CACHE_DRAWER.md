@@ -11,7 +11,7 @@ This file is the build and install handoff. Nothing here was installed, and laun
 1. `c55d8f1` imports the local dirty UsageRail baseline that was supplied as a read-only bundle. Tracked diff versus `1361d96` matches that bundle for `UsageRailApp.swift` and `collect.py`. It also adds `gemini.svg` and `vertex.svg`. Visible slots stay GPT, Gemini, Grok, Claude, DeepSeek, Endpoint. Height is 420. Slot count is 6. Kimi and Vertex stay compiled and unmounted (`orderOut`). Claude monthly spend and DeepSeek budget display stay. `collect.py` still ends with `_apply_local()` and still does not call `fetch_kimi()`.
 2. The cache commit adds `CacheHitCore`, `CacheCompanion.swift`, tests, and four lines in `AppDelegate`: keep a `CacheCompanion` and `attach` / `start` it after the rail exists. `collect.py` is not modified again.
 
-`mac/local.py` is gitignored and is not in this branch. Do not add it. `vertex_status.py` and its tests are not recreated and are not wired.
+`mac/local.py` is gitignored and is not in this branch. Do not add it. `vertex_status.py` and its tests are not recreated and are not wired. Either file may already exist on the machine. Tests must not require those files to be absent, and must not read or delete them.
 
 The live menu-bar binary on the Mac was built from that dirty tree on 2026-11-18. Checking this branch out does not delete gitignored `local.py`. Do not copy a new binary over the running app until you decide to.
 
