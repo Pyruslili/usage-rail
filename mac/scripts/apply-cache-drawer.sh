@@ -128,8 +128,16 @@ if not apply:
     sys.exit(0)
 
 stamp = time.strftime("%Y%m%d-%H%M%S")
-backup = Path.home() / ".cache" / "usage-rail" / "cache-drawer-backups" / stamp
-backup.mkdir(parents=True, exist_ok=False)
+base_backup = Path.home() / ".cache" / "usage-rail" / "cache-drawer-backups" / stamp
+backup = base_backup
+suffix = 0
+while True:
+    try:
+        backup.mkdir(parents=True, exist_ok=False)
+        break
+    except FileExistsError:
+        suffix += 1
+        backup = Path(f"{base_backup}-{suffix}")
 for rel in manifest["preimage"]:
     src = root / rel
     dest = backup / rel
