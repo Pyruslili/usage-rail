@@ -24,12 +24,13 @@ The drawer's top edge is 81pt below the rail's bottom edge. That clears the rail
 Each row is one sent message and its first model request only. Later tool calls stay behind a tap. The top number is the weighted sum of those first requests in the loaded session, and it skips rows that are 未知.
 
 ```text
-合成示例，不是真实命中率
+合成示例，不是真实命中率。消息正文不会显示。
 
-本段首呼 0% · 1 条未知
-22:17  #7   example-model-a     0%
-22:20  #8   example-model-a     未知
-22:21  #9                       等待
+整体命中 0%
+最近 3 条 · 1 条暂无
+14:32
+#7  example-model-a          0%
+                             未命中
 ```
 
 A first request is shown only when a complete Vertex final-outbound log has a clean ordered pair for that turn, or when the session log records exactly one model call. A log opened mid-file, an ambiguous request, a missing cached field, or a first 429 stays 未知 or 限流. A later hit is not promoted. GPT lines have no turn id and stay unlinked.

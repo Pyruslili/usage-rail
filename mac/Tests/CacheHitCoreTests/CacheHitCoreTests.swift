@@ -16,13 +16,13 @@ final class CacheHitCoreTests: XCTestCase {
         ].joined(separator: "\n") + "\n", inode: 10)
         let snapshot = lab.poll()
         let turn = snapshot.turns[0]
-        XCTAssertEqual(turn.headline, "未知")
+        XCTAssertEqual(turn.headline, "暂无数据")
         XCTAssertEqual(turn.calls[0].cachedPresent, false)
         XCTAssertNil(turn.calls[0].cached)
         XCTAssertFalse(snapshot.visibleText.contains("0%"))
         XCTAssertFalse(snapshot.visibleText.contains("缓存 0"))
         XCTAssertFalse(snapshot.visibleText.contains("5000"))
-        XCTAssertTrue(snapshot.visibleText.contains("缓存未知"))
+        XCTAssertEqual(turn.lines, ["这次没有缓存数据。"])
         assertHonest(snapshot)
     }
 
@@ -36,7 +36,7 @@ final class CacheHitCoreTests: XCTestCase {
         ].joined(separator: "\n") + "\n", inode: 10)
         let turn = lab.poll().turns[0]
         XCTAssertFalse(turn.calls[0].cachedPresent)
-        XCTAssertEqual(turn.headline, "未知")
+        XCTAssertEqual(turn.headline, "暂无数据")
     }
 
     func testGenuineCachedZero() {
@@ -51,8 +51,8 @@ final class CacheHitCoreTests: XCTestCase {
         XCTAssertEqual(snapshot.turns[0].calls[0].cached, 0)
         XCTAssertTrue(snapshot.turns[0].calls[0].cachedPresent)
         XCTAssertEqual(snapshot.turns[0].headline, "0%")
-        XCTAssertTrue(snapshot.visibleText.contains("缓存 0"))
-        XCTAssertTrue(snapshot.visibleText.contains("Vertex 观察：首次"))
+        XCTAssertEqual(snapshot.turns[0].caption, "未命中")
+        XCTAssertEqual(snapshot.turns[0].calls[0].firstDiff, "first")
     }
 
     func testExactLinkAndUnlinkedConv() {
@@ -74,7 +74,7 @@ final class CacheHitCoreTests: XCTestCase {
         XCTAssertFalse(snapshot.visibleText.contains("777001"))
         XCTAssertTrue(snapshot.visibleText.contains("属于别的会话"))
         XCTAssertEqual(snapshot.turns[0].timeText, "22:17")
-        XCTAssertTrue(snapshot.visibleText.contains("Vertex 最终出站"))
+        XCTAssertEqual(snapshot.turns[0].calls[0].source, "vertex")
     }
 
     func testSIWCStaysUnlinkedAndIgnoresPrintedPercent() {
@@ -120,11 +120,12 @@ final class CacheHitCoreTests: XCTestCase {
         XCTAssertEqual(snapshot.turns[0].headline, "0%")
         XCTAssertEqual(snapshot.turns[0].firstCached, 0)
         XCTAssertEqual(snapshot.turns[0].calls[1].cached, 80)
-        XCTAssertEqual(snapshot.summary, "本段首呼 0%")
+        XCTAssertEqual(snapshot.summary, "整体命中 0%")
         XCTAssertFalse(snapshot.faceText.contains("7.3%"))
         XCTAssertFalse(snapshot.faceText.contains("合计"))
         XCTAssertFalse(snapshot.faceText.contains("4%"))
-        XCTAssertTrue(snapshot.visibleText.contains("未知清缓存仍可能发生"))
+        XCTAssertEqual(snapshot.turns[0].calls[0].firstDiff, "first")
+        XCTAssertEqual(snapshot.turns[0].shownRequests.map(\.label), ["刚发出这条", "工具续跑 1"])
         assertHonest(snapshot)
     }
 
@@ -160,13 +161,12 @@ final class CacheHitCoreTests: XCTestCase {
         let snapshot = lab.poll()
         XCTAssertEqual(snapshot.turns[0].calls.count, 0)
         XCTAssertEqual(snapshot.turns[0].sessionFigures[0].modelCalls, 3)
-        XCTAssertEqual(snapshot.turns[0].headline, "未知")
+        XCTAssertEqual(snapshot.turns[0].headline, "暂无数据")
         XCTAssertNil(snapshot.turns[0].firstInput)
         XCTAssertFalse(snapshot.faceText.contains("12.5%"))
         XCTAssertFalse(snapshot.faceText.contains("合计"))
-        XCTAssertTrue(snapshot.visibleText.contains("不可拆"))
-        XCTAssertTrue(snapshot.visibleText.contains("没有把合计拆成单次"))
-        XCTAssertTrue(snapshot.visibleText.contains("没有 Vertex 最终出站指纹"))
+        XCTAssertEqual(snapshot.turns[0].lines, ["这条只有整轮合计，无法单独知道第一次。"])
+        XCTAssertFalse(snapshot.visibleText.contains("12.5%"))
         XCTAssertFalse(snapshot.visibleText.contains("26666"))
         XCTAssertFalse(snapshot.visibleText.contains("没有本地改动"))
     }
@@ -185,7 +185,7 @@ final class CacheHitCoreTests: XCTestCase {
         let snapshot = lab.poll()
         XCTAssertEqual(snapshot.turns[0].calls[0].input, 20)
         XCTAssertEqual(snapshot.turns[0].sessionFigures[0].input, 99)
-        XCTAssertTrue(snapshot.visibleText.contains("没有把会话合计和 Vertex 相加"))
+        XCTAssertEqual(snapshot.turns[0].firstInput, 20)
         XCTAssertFalse(snapshot.visibleText.contains("输入 119"))
     }
 
@@ -197,7 +197,7 @@ final class CacheHitCoreTests: XCTestCase {
             completedChunk(stop: "rate_limit")
         ].joined(separator: "\n") + "\n", inode: 2)
         let snapshot = lab.poll()
-        XCTAssertEqual(snapshot.turns[0].headline, "限流")
+        XCTAssertEqual(snapshot.turns[0].headline, "请求受限")
         XCTAssertFalse(snapshot.visibleText.contains("0%"))
         XCTAssertFalse(snapshot.visibleText.contains("缓存 0"))
     }
@@ -211,8 +211,8 @@ final class CacheHitCoreTests: XCTestCase {
             vertexUsage(req: "req-429", turn: "7", prompt: 50, cached: nil, status: 429, conv: lab.session)
         ].joined(separator: "\n") + "\n", inode: 10)
         let snapshot = lab.poll()
-        XCTAssertEqual(snapshot.turns[0].headline, "限流")
-        XCTAssertTrue(snapshot.visibleText.contains("限流"))
+        XCTAssertEqual(snapshot.turns[0].headline, "请求受限")
+        XCTAssertTrue(snapshot.visibleText.contains("请求受限"))
         XCTAssertFalse(snapshot.visibleText.contains("0%"))
     }
 
@@ -242,10 +242,10 @@ final class CacheHitCoreTests: XCTestCase {
         XCTAssertEqual(calls[0].firstDiff, "tools")
         XCTAssertNil(calls[2].firstDiff)
         XCTAssertEqual(calls[2].cached, 5)
-        let text = lab.poll().visibleText
-        XCTAssertTrue(text.contains("对应关系不明"))
-        XCTAssertTrue(text.contains("相同下标不是同一条历史"))
-        XCTAssertTrue(text.contains("没有算进合计"))
+        let row = lab.poll().turns[0]
+        XCTAssertEqual(row.headline, "暂无数据")
+        XCTAssertEqual(row.lines, ["这几次对不上，看不出第一次。"])
+        XCTAssertFalse(row.lines.joined().contains("%"))
     }
 
     func testCleanTrailingPrefixStaysPending() {
@@ -283,8 +283,8 @@ final class CacheHitCoreTests: XCTestCase {
         lab.write("/runtime/finger.jsonl", fingerprintLine(req: "xai-example-request-token-0001", turn: "3", conv: lab.session) + "\n", inode: 11)
         let snapshot = lab.poll()
         let text = snapshot.visibleText
-        XCTAssertTrue(text.contains("没有 first_diff"))
-        XCTAssertTrue(text.contains("不能把它当成前缀没变"))
+        XCTAssertFalse(text.contains("没有 first_diff"))
+        XCTAssertFalse(snapshot.faceText.contains("前缀未变"))
         XCTAssertTrue(text.contains("不是 Vertex 最终出站"))
         XCTAssertTrue(text.contains("覆盖有限"))
         XCTAssertTrue(text.contains("8317 比当前会话旧"))
@@ -310,11 +310,11 @@ final class CacheHitCoreTests: XCTestCase {
         let snapshot = lab.poll()
         let turn = snapshot.turns.first { $0.promptIndex == 6 }
         XCTAssertEqual(turn?.badges.map(\.title), ["图 2", "工具", "回退", "换模型", "间隔"])
-        XCTAssertTrue(snapshot.visibleText.contains("这是观察，不是原因。"))
-        XCTAssertTrue(snapshot.visibleText.contains("不是前缀变化结论"))
-        XCTAssertTrue(snapshot.visibleText.contains("仍然不是结论"))
-        XCTAssertTrue(snapshot.visibleText.contains("30 秒"))
-        XCTAssertTrue(snapshot.visibleText.contains("间隔不能用来判断 TTL"))
+        XCTAssertEqual(turn?.imageCount, 2)
+        XCTAssertEqual(turn?.toolCount, 1)
+        XCTAssertEqual(turn?.didRewind, true)
+        XCTAssertFalse(snapshot.faceText.contains("TTL"))
+        XCTAssertFalse(snapshot.visibleText.contains("不是原因"))
         assertHonest(snapshot)
     }
 
@@ -325,10 +325,10 @@ final class CacheHitCoreTests: XCTestCase {
             userChunk(index: 1, created: "2026-01-15T14:00:00Z", model: "example-model-a"),
             userChunk(index: 2, created: "2026-01-15T14:00:20Z", model: "example-model-a")
         ].joined(separator: "\n") + "\n", inode: 2)
-        let text = lab.poll().visibleText
-        XCTAssertTrue(text.contains("20 秒"))
-        XCTAssertTrue(text.contains("间隔不能用来判断 TTL"))
-        XCTAssertFalse(text.contains("没有过期"))
+        let snapshot = lab.poll()
+        XCTAssertTrue(snapshot.turns.contains { $0.badges.contains { $0.title == "间隔" } })
+        XCTAssertFalse(snapshot.faceText.contains("TTL"))
+        XCTAssertFalse(snapshot.visibleText.contains("没有过期"))
     }
 
     func testSeveralChunksAreOneTurn() {
@@ -463,7 +463,7 @@ final class CacheHitCoreTests: XCTestCase {
         XCTAssertTrue(snapshot.visibleText.contains("未关联 · GPT"))
         XCTAssertFalse(snapshot.visibleText.contains("req_synthetic_xyz"))
         XCTAssertFalse(snapshot.visibleText.contains("SECRET_ONLY_IN_FILE"))
-        XCTAssertTrue(snapshot.visibleText.contains("未知清缓存仍可能发生"))
+        XCTAssertFalse(snapshot.visibleText.contains("未知清缓存"))
         assertHonest(snapshot)
     }
 
@@ -558,7 +558,7 @@ final class CacheHitCoreTests: XCTestCase {
         XCTAssertEqual(snapshot.turns[0].headline, "0%")
         XCTAssertEqual(snapshot.turns[0].firstCached, 0)
         XCTAssertEqual(snapshot.turns[0].calls[1].cached, 100)
-        XCTAssertEqual(snapshot.summary, "本段首呼 0%")
+        XCTAssertEqual(snapshot.summary, "整体命中 0%")
         XCTAssertFalse(snapshot.faceText.contains("100%"))
         XCTAssertFalse(snapshot.faceText.contains("合计"))
     }
@@ -574,11 +574,11 @@ final class CacheHitCoreTests: XCTestCase {
             vertexUsage(req: "req-miss", turn: "7", prompt: 100, cached: 100, conv: lab.session)
         ].joined(separator: "\n") + "\n", inode: 10)
         let snapshot = lab.poll()
-        XCTAssertEqual(snapshot.turns[0].headline, "未知")
+        XCTAssertEqual(snapshot.turns[0].headline, "暂无数据")
         XCTAssertNil(snapshot.turns[0].firstCached)
         XCTAssertEqual(snapshot.turns[0].calls[1].cached, 100)
         XCTAssertFalse(snapshot.faceText.contains("100%"))
-        XCTAssertEqual(snapshot.summary, "本段首呼 未知")
+        XCTAssertEqual(snapshot.summary, "整体命中 暂无")
     }
 
     func testEarlyRateLimitIsNotALaterSuccess() {
@@ -592,7 +592,7 @@ final class CacheHitCoreTests: XCTestCase {
             vertexUsage(req: "req-429", turn: "7", prompt: 80, cached: 80, conv: lab.session)
         ].joined(separator: "\n") + "\n", inode: 10)
         let snapshot = lab.poll()
-        XCTAssertEqual(snapshot.turns[0].headline, "限流")
+        XCTAssertEqual(snapshot.turns[0].headline, "请求受限")
         XCTAssertFalse(snapshot.faceText.contains("100%"))
         XCTAssertFalse(snapshot.faceText.contains("0%"))
     }
@@ -608,7 +608,7 @@ final class CacheHitCoreTests: XCTestCase {
         XCTAssertEqual(snapshot.turns[0].headline, "50%")
         XCTAssertEqual(snapshot.turns[0].firstInput, 100)
         XCTAssertEqual(snapshot.turns[0].firstCached, 50)
-        XCTAssertEqual(snapshot.summary, "本段首呼 50%")
+        XCTAssertEqual(snapshot.summary, "整体命中 50%")
     }
 
     func testPartialLogDoesNotUseTheFirstSurvivingCall() {
@@ -646,7 +646,7 @@ final class CacheHitCoreTests: XCTestCase {
         )
         let snapshot = engine.poll(now: now)
         XCTAssertEqual(snapshot.turns.count, 1)
-        XCTAssertEqual(snapshot.turns[0].headline, "未知")
+        XCTAssertEqual(snapshot.turns[0].headline, "暂无数据")
         XCTAssertTrue(snapshot.turns[0].calls.allSatisfy(\.partial))
         XCTAssertFalse(snapshot.faceText.contains("100%"))
         XCTAssertFalse(snapshot.faceText.contains("0%"))
@@ -702,8 +702,8 @@ final class CacheHitCoreTests: XCTestCase {
         ].joined(separator: "\n") + "\n", inode: 10)
         let snapshot = lab.poll()
         XCTAssertEqual(snapshot.turns.first { $0.promptIndex == 1 }?.headline, "0%")
-        XCTAssertEqual(snapshot.turns.first { $0.promptIndex == 2 }?.headline, "未知")
-        XCTAssertEqual(snapshot.summary, "本段首呼 0% · 1 条未知")
+        XCTAssertEqual(snapshot.turns.first { $0.promptIndex == 2 }?.headline, "暂无数据")
+        XCTAssertEqual(snapshot.summary, "整体命中 0%")
         XCTAssertFalse(snapshot.faceText.contains("50%"))
         XCTAssertFalse(snapshot.summary.contains("100%"))
     }

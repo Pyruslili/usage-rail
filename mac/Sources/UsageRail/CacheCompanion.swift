@@ -7,8 +7,9 @@ import SwiftUI
 final class CacheCompanionModel: ObservableObject {
     @Published var snapshot = CacheSnapshot.empty(phase: .notConfigured, summary: "未配置", status: "未配置运行目录")
     @Published var expanded = false
+    /// Text stays hidden until the window has finished opening, and is removed before it closes.
+    @Published var showBody = false
     @Published var openTurnID: String?
-    @Published var showUnlinked = false
 }
 
 @MainActor
@@ -73,12 +74,21 @@ final class CacheCompanion {
         panel.titlebarAppearsTransparent = true
         let hosting = NSHostingController(rootView: CacheDrawerView(model: model))
         hosting.sizingOptions = []
-        hosting.view.frame = panel.contentView?.bounds ?? .zero
-        hosting.view.autoresizingMask = [.width, .height]
-        hosting.view.wantsLayer = true
-        hosting.view.layer?.masksToBounds = true
-        hosting.view.layer?.backgroundColor = NSColor.clear.cgColor
+        let host = hosting.view
+        host.wantsLayer = true
+        host.layer?.masksToBounds = true
+        host.layer?.backgroundColor = NSColor.clear.cgColor
+        if #available(macOS 14.0, *) {
+            host.clipsToBounds = true
+        }
         panel.contentViewController = hosting
+        if let content = panel.contentView {
+            content.wantsLayer = true
+            content.layer?.masksToBounds = true
+            if #available(macOS 14.0, *) {
+                content.clipsToBounds = true
+            }
+        }
         self.panel = panel
         panel.orderFrontRegardless()
     }
@@ -113,6 +123,9 @@ final class CacheCompanion {
             expanded: model.expanded
         )
         let rect = NSRect(x: box.x, y: box.y, width: box.width, height: box.height)
+        panel.contentMinSize = rect.size
+        panel.contentMaxSize = rect.size
+        clip(panel)
         if !animated, Date() < animatingUntil {
             panel.orderFrontRegardless()
             return
@@ -131,12 +144,32 @@ final class CacheCompanion {
             }, completionHandler: {
                 Task { @MainActor in
                     panel.setFrame(rect, display: true)
+                    panel.contentMinSize = rect.size
+                    panel.contentMaxSize = rect.size
+                    self.model.showBody = self.model.expanded
                 }
             })
         } else {
             panel.setFrame(rect, display: true)
+            model.showBody = model.expanded
         }
         panel.orderFrontRegardless()
+    }
+
+    private func clip(_ panel: NSPanel) {
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layer?.masksToBounds = true
+        if #available(macOS 14.0, *) {
+            panel.contentView?.clipsToBounds = true
+        }
+        if let host = panel.contentViewController?.view {
+            host.frame = panel.contentView?.bounds ?? host.frame
+            host.wantsLayer = true
+            host.layer?.masksToBounds = true
+            if #available(macOS 14.0, *) {
+                host.clipsToBounds = true
+            }
+        }
     }
 
     private func trackMouse() {
@@ -161,6 +194,7 @@ final class CacheCompanion {
             collapseWork?.cancel()
             collapseWork = nil
             guard !model.expanded else { return }
+            model.showBody = false
             model.expanded = true
             layout(animated: true)
             return
@@ -168,6 +202,8 @@ final class CacheCompanion {
         guard model.expanded, collapseWork == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            self.model.showBody = false
+            self.model.openTurnID = nil
             self.model.expanded = false
             self.layout(animated: true)
             self.collapseWork = nil
@@ -191,146 +227,199 @@ private enum Seam {
 private struct CacheDrawerView: View {
     @ObservedObject var model: CacheCompanionModel
 
+    private let inset = EdgeInsets(top: 18, leading: 20, bottom: 18, trailing: 22)
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            header
-            if model.expanded {
-                if let banner = model.snapshot.banner {
-                    Text(banner)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Seam.hot)
+        Group {
+            if model.showBody {
+                ZStack(alignment: .trailing) {
+                    expandedBody
+                        .padding(.trailing, 14)
+                    Capsule()
+                        .fill(Seam.hot)
+                        .frame(width: 6, height: 32)
+                        .padding(.trailing, 3)
                 }
-                if model.snapshot.turns.isEmpty, !model.snapshot.status.isEmpty {
-                    Text(model.snapshot.status)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Seam.blush.opacity(0.85))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(model.snapshot.turns) { turn in
-                            turnRow(turn)
+            } else {
+                Capsule()
+                    .fill(Seam.hot)
+                    .padding(1)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var expandedBody: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("缓存")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Seam.cream)
+            Text(model.snapshot.summary)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(Seam.cream)
+                .monospacedDigit()
+            if !model.snapshot.status.isEmpty, !model.snapshot.turns.isEmpty {
+                Text(model.snapshot.status)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Seam.cream.opacity(0.55))
+            } else if model.snapshot.turns.isEmpty, !model.snapshot.status.isEmpty {
+                Text(model.snapshot.status)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Seam.cream.opacity(0.55))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(model.snapshot.turns.enumerated()), id: \.element.id) { index, turn in
+                        if index > 0 {
+                            Rectangle()
+                                .fill(Seam.cream.opacity(0.08))
+                                .frame(height: 1)
+                                .padding(.vertical, 2)
                         }
-                        if !model.snapshot.unlinked.isEmpty {
-                            Button(model.showUnlinked ? "收起" : "未对上 \(model.snapshot.unlinked.count)") {
-                                model.showUnlinked.toggle()
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 9))
-                            .foregroundStyle(Seam.blush.opacity(0.8))
-                            if model.showUnlinked {
-                                ForEach(model.snapshot.unlinked) { group in
-                                    unlinked(group)
-                                }
-                            }
-                        }
+                        turnRow(turn)
                     }
                 }
             }
-            Spacer(minLength: 0)
+            if model.snapshot.banner != nil {
+                Text("效果示意 · 全部为假数据")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Seam.cream.opacity(0.4))
+            }
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 8)
-        .frame(width: CGFloat(CacheLayout.expandedWidth), alignment: .topLeading)
+        .padding(inset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(panelBackground)
-        .overlay(alignment: .leading) {
-            Capsule()
-                .fill(Seam.hot)
-                .frame(width: 2)
-                .padding(.vertical, 12)
-                .padding(.leading, 3)
-        }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("缓存")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Seam.cream)
-            Text(model.snapshot.summary)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(Seam.cream)
-                .monospacedDigit()
-        }
     }
 
     private func turnRow(_ turn: TurnRow) -> some View {
         let open = model.openTurnID == turn.id
-        return VStack(alignment: .leading, spacing: 4) {
+        let quiet = turn.headline.hasSuffix("%") == false || turn.caption == "未命中"
+        return VStack(alignment: .leading, spacing: 10) {
             Button {
                 model.openTurnID = open ? nil : turn.id
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("\(turn.timeText)  \(turn.identityText)")
-                            .font(.system(size: 11, weight: .semibold))
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(turn.timeText.isEmpty ? turn.identityText : turn.timeText)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Seam.cream.opacity(0.5))
+                        Text(rowTitle(turn))
+                            .font(.system(size: 15, weight: .medium))
                             .foregroundStyle(Seam.cream)
-                        if !turn.modelText.isEmpty {
-                            Text(turn.modelText)
-                                .font(.system(size: 8))
-                                .foregroundStyle(Seam.blush.opacity(0.75))
-                                .lineLimit(1)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 16)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(turn.headline)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(quiet ? Seam.blush : Seam.cream)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                        if let caption = turn.caption {
+                            Text(caption)
+                                .font(.system(size: 11))
+                                .foregroundStyle(Seam.cream.opacity(0.45))
                         }
                     }
-                    Spacer(minLength: 4)
-                    Text(turn.headline)
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        .foregroundStyle(turn.headline == "未知" || turn.headline == "等待" ? Seam.blush : Seam.cream)
-                        .monospacedDigit()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if open {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(Array(turn.lines.enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.system(size: 9))
-                            .foregroundStyle(Seam.cream.opacity(0.82))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+            if open, showsDetail(turn) {
+                detailCard(turn)
+                    .padding(.bottom, 8)
             }
         }
     }
 
-    private func unlinked(_ group: UnlinkedGroup) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(group.title)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Seam.hot)
-            ForEach(Array(group.lines.enumerated()), id: \.offset) { _, line in
-                Text(line)
-                    .font(.system(size: 9))
-                    .foregroundStyle(Seam.cream.opacity(0.78))
+    private func rowTitle(_ turn: TurnRow) -> String {
+        if turn.modelText.isEmpty { return turn.identityText }
+        if turn.timeText.isEmpty { return "\(turn.identityText)  \(turn.modelText)" }
+        return "\(turn.identityText)  \(turn.modelText)"
+    }
+
+    private func showsDetail(_ turn: TurnRow) -> Bool {
+        turn.imageCount > 0 || turn.toolCount > 0 || turn.didRewind || !turn.shownRequests.isEmpty || turn.lines.count == 1
+    }
+
+    private func detailCard(_ turn: TurnRow) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if turn.imageCount > 0 {
+                detailGroup("这次发送") {
+                    chip("图片 \(turn.imageCount) 张")
+                }
+            }
+            if turn.toolCount > 0 || turn.didRewind {
+                detailGroup("对话操作") {
+                    HStack(spacing: 8) {
+                        if turn.toolCount > 0 { chip("工具 \(turn.toolCount) 次") }
+                        if turn.didRewind { chip("回退") }
+                    }
+                }
+            }
+            if !turn.shownRequests.isEmpty {
+                detailGroup("每次请求") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(turn.shownRequests) { request in
+                            HStack {
+                                Text(request.label)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Seam.cream.opacity(0.85))
+                                Spacer(minLength: 12)
+                                Text(request.value)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(request.value.hasSuffix("%") && request.value != "0%" ? Seam.cream : Seam.blush)
+                                    .monospacedDigit()
+                            }
+                        }
+                    }
+                }
+            }
+            if let note = turn.lines.first {
+                Text(note)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Seam.cream.opacity(0.55))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Seam.cream.opacity(0.06))
+        )
+    }
+
+    private func detailGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(Seam.cream.opacity(0.45))
+            content()
+        }
+    }
+
+    private func chip(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12))
+            .foregroundStyle(Seam.cream.opacity(0.85))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Seam.cream.opacity(0.18), lineWidth: 1)
+            )
     }
 
     private var panelBackground: some View {
-        UnevenRoundedRectangle(
-            cornerRadii: .init(
-                topLeading: CGFloat(CacheLayout.corner),
-                bottomLeading: CGFloat(CacheLayout.corner),
-                bottomTrailing: 0,
-                topTrailing: 0
-            ),
-            style: .continuous
-        )
-        .fill(Seam.ink)
-        .overlay(
-            UnevenRoundedRectangle(
-                cornerRadii: .init(
-                    topLeading: CGFloat(CacheLayout.corner),
-                    bottomLeading: CGFloat(CacheLayout.corner),
-                    bottomTrailing: 0,
-                    topTrailing: 0
-                ),
-                style: .continuous
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(Seam.ink)
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Seam.cream.opacity(0.06), lineWidth: 1)
             )
-            .stroke(Seam.hot.opacity(0.35), lineWidth: 1)
-        )
-        .shadow(color: Seam.hot.opacity(0.18), radius: 8, x: -2, y: 0)
     }
 }

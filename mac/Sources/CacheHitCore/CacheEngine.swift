@@ -223,6 +223,7 @@ public final class CacheEngine {
         case .tool:
             guard let last = order.last else { return }
             turns[last]?.sawTool = true
+            turns[last]?.toolCount += 1
         case .rewind(let target):
             reopenIndex.insert(target)
             if let key = order.last(where: { $0.promptIndex == target }) {

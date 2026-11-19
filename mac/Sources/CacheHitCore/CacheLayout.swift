@@ -45,8 +45,8 @@ public struct CacheFrame: Equatable {
 /// The drawer is glued to the screen's right edge and sits below the live rail frame.
 public enum CacheLayout {
     public static let collapsedWidth: Double = 8
-    public static let expandedWidth: Double = 308
-    public static let collapsedHeight: Double = 56
+    public static let expandedWidth: Double = 320
+    public static let collapsedHeight: Double = 44
     public static let expandedHeight: Double = 380
     public static let minimumExpandedHeight: Double = 120
     /// Audited rail geometry. The rail's own hover code is not edited.

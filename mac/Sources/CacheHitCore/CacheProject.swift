@@ -17,6 +17,7 @@ struct SessionTurn {
     var modelID: String?
     var modelChanged = false
     var sawTool = false
+    var toolCount = 0
     var sawRewind = false
     var completions: [CompletionRecord] = []
 }
@@ -131,7 +132,7 @@ func projectCache(
         phase: phase,
         banner: banner,
         summary: summary,
-        status: rows.isEmpty ? diagnostics : "",
+        status: rows.isEmpty ? diagnostics : listLabel(rows: rows),
         turns: rows,
         unlinked: unlinked,
         footer: "",
@@ -153,15 +154,21 @@ func projectCache(
 
 private func firstCallSummary(rows: [TurnRow], phase: CachePhase) -> String {
     if phase == .notConfigured { return "未配置" }
-    if rows.isEmpty { return phase == .waiting ? "等待" : "本段首呼 未知" }
+    if rows.isEmpty { return phase == .waiting ? "等待" : "整体命中 暂无" }
     let known = rows.compactMap { row -> KnownHit? in
         guard row.headline.hasSuffix("%"), let hit = knownHit(from: row) else { return nil }
         return hit
     }
-    let unknown = rows.filter { $0.headline == "未知" }.count
-    guard let hit = weightedHit(known) else { return "本段首呼 未知" }
-    if unknown > 0 { return "本段首呼 \(hit.text) · \(unknown) 条未知" }
-    return "本段首呼 \(hit.text)"
+    guard let hit = weightedHit(known) else { return "整体命中 暂无" }
+    return "整体命中 \(hit.text)"
+}
+
+func listLabel(rows: [TurnRow]) -> String {
+    let count = rows.count
+    guard count > 0 else { return "" }
+    let unknown = rows.filter { $0.headline == "暂无数据" }.count
+    if unknown > 0 { return "最近 \(count) 条 · \(unknown) 条暂无" }
+    return "最近 \(count) 条消息"
 }
 
 private func knownHit(from row: TurnRow) -> KnownHit? {
@@ -400,30 +407,6 @@ private func renderTurn(
             stopReason: $0.stopReason
         )
     }
-    var lines: [String] = []
-    lines.append(contentsOf: figures.flatMap(callLines))
-    if figures.contains(where: { $0.linkage == .ambiguous }) {
-        lines.append("有对应关系不明的记录，没有算进合计")
-    }
-    if turn.completions.count > 1 {
-        lines.append("多条回合结束，没有拆成多条用户消息")
-    }
-    for (offset, session) in sessions.enumerated() {
-        lines.append(contentsOf: sessionLines(session, index: offset + 1, total: sessions.count))
-    }
-    if !sessions.isEmpty, figures.contains(where: { $0.source == "vertex" && $0.hasUsage }) {
-        lines.append("没有把会话合计和 Vertex 相加")
-    }
-    if !figures.contains(where: { $0.source == "vertex" && $0.hasPrefix }) {
-        lines.append("这条没有 Vertex 最终出站指纹。原因未知 / 观察不可用")
-    }
-    if turn.sawTool, figures.contains(where: { $0.firstDiff == "tools" }) {
-        lines.append("同时看到工具活动和 Vertex tools 变化。仍然不是结论。")
-    }
-    if calls.filter({ $0.figure.source == "fingerprint" }).count > 1 {
-        lines.append("多条 8317 前缀没有合并")
-    }
-
     var badges: [Badge] = []
     let imageTotal = figures.compactMap { figure -> Int? in
         guard figure.source == "vertex" else { return nil }
@@ -448,13 +431,13 @@ private func renderTurn(
         let gap = formatGap(date.timeIntervalSince(previousDate))
         badges.append(Badge(title: "间隔", detail: "与上一条间隔 \(gap)。间隔不能用来判断 TTL。"))
     }
-    lines.append(contentsOf: badges.map(\.detail))
-
-    let timeText = turn.createdAt.map { formatLocal($0, zone: zone, now: now) } ?? "时间未知"
+    let timeText = turn.createdAt.map { formatLocal($0, zone: zone, now: now) } ?? ""
     let modelText = turn.modelID ?? ""
     let pending = turn.completions.isEmpty && !figures.contains(where: { $0.hasUsage })
     let first = rowFirst(calls: figures, sessions: sessions, pending: pending)
-    if !first.reason.isEmpty { lines.insert(first.reason, at: 0) }
+    let note = consumerNote(first)
+    let lines = note.map { [$0] } ?? []
+    let images = figures.compactMap(\.imageCount).filter { $0 > 0 }.reduce(0, +)
     return TurnRow(
         id: "turn-\(turn.promptIndex)-\(turn.generation)",
         promptIndex: turn.promptIndex,
@@ -465,6 +448,11 @@ private func renderTurn(
         firstReason: first.reason,
         firstInput: first.input,
         firstCached: first.cached,
+        caption: hitCaption(first),
+        imageCount: images,
+        toolCount: turn.toolCount,
+        didRewind: turn.sawRewind,
+        shownRequests: shownRequests(figures: figures, first: first),
         badges: badges,
         lines: lines,
         calls: figures,
@@ -484,41 +472,91 @@ private func rowFirst(calls: [CallFigure], sessions: [SessionFigure], pending: B
     let blocked = vertex.contains { $0.partial || $0.linkage == .ambiguous || $0.linkage == .unkeyed }
     if let earliest = vertex.first, !blocked {
         if earliest.linkage == .pendingPrefix {
-            return RowFirst(headline: "等待", reason: "第一次还没有用量")
+            return RowFirst(headline: "等待", reason: "")
         }
         if earliest.linkage == .paired {
             if earliest.status == 429 {
-                return RowFirst(headline: "限流", reason: "第一次被限流")
+                return RowFirst(headline: "请求受限", reason: "limited")
             }
             if let status = earliest.status, status != 200 {
-                return RowFirst(headline: "出错", reason: "第一次没有完成")
+                return RowFirst(headline: "未完成", reason: "failed")
             }
             if !earliest.cachedPresent {
-                return RowFirst(headline: "未知", reason: "第一次没有缓存数字")
+                return RowFirst(headline: "暂无数据", reason: "missing")
             }
             if let input = earliest.input, input > 0, let cached = earliest.cached {
-                return RowFirst(headline: formatHit(cached: cached, input: input), reason: "第一次", input: input, cached: cached)
+                return RowFirst(headline: formatHit(cached: cached, input: input), reason: "hit", input: input, cached: cached)
             }
-            return RowFirst(headline: "未知", reason: "第一次没有缓存数字")
+            return RowFirst(headline: "暂无数据", reason: "missing")
         }
-        return RowFirst(headline: "未知", reason: "第一次对不上")
+        return RowFirst(headline: "暂无数据", reason: "unmatched")
     }
     if vertex.contains(where: \.partial) {
         if let single = sessionSingle(sessions) { return single }
-        return RowFirst(headline: "未知", reason: "日志从半截开始")
+        return RowFirst(headline: "暂无数据", reason: "partial")
     }
     if blocked {
-        return RowFirst(headline: "未知", reason: "第一次对不上")
+        return RowFirst(headline: "暂无数据", reason: "unmatched")
     }
     if let single = sessionSingle(sessions) { return single }
     if sessions.contains(where: { ($0.modelCalls ?? 0) > 1 || ($0.numTurns ?? 0) > 1 }) {
-        return RowFirst(headline: "未知", reason: "多次合计不是第一次")
+        return RowFirst(headline: "暂无数据", reason: "aggregate")
     }
     if sessions.count == 1, sessions[0].stopReason == "rate_limit", sessions[0].input == nil, !sessions[0].cachedPresent {
-        return RowFirst(headline: "限流", reason: "限流，没有用量")
+        return RowFirst(headline: "请求受限", reason: "limited")
     }
     if pending { return RowFirst(headline: "等待", reason: "") }
-    return RowFirst(headline: "未知", reason: "看不到第一次")
+    return RowFirst(headline: "暂无数据", reason: "none")
+}
+
+private func consumerNote(_ first: RowFirst) -> String? {
+    switch first.reason {
+    case "aggregate":
+        return "这条只有整轮合计，无法单独知道第一次。"
+    case "missing":
+        return "这次没有缓存数据。"
+    case "partial":
+        return "记录不完整，看不到第一次。"
+    case "unmatched":
+        return "这几次对不上，看不出第一次。"
+    case "none":
+        return "看不到这次的第一次结果。"
+    default:
+        return nil
+    }
+}
+
+private func hitCaption(_ first: RowFirst) -> String? {
+    guard let cached = first.cached else { return nil }
+    return cached == 0 ? "未命中" : "已命中"
+}
+
+private func shownRequests(figures: [CallFigure], first: RowFirst) -> [ShownRequest] {
+    let exact = figures
+        .filter { $0.source == "vertex" && $0.linkage == .paired && !$0.partial }
+        .sorted { $0.order < $1.order }
+    if !exact.isEmpty {
+        return exact.enumerated().map { index, call in
+            ShownRequest(
+                id: call.id,
+                label: index == 0 ? "刚发出这条" : "工具续跑 \(index)",
+                value: requestValue(call)
+            )
+        }
+    }
+    if first.reason == "hit", let cached = first.cached, let input = first.input, input > 0 {
+        return [ShownRequest(id: "only", label: "刚发出这条", value: formatHit(cached: cached, input: input))]
+    }
+    return []
+}
+
+private func requestValue(_ call: CallFigure) -> String {
+    if call.status == 429 { return "请求受限" }
+    if let status = call.status, status != 200, !call.cachedPresent { return "未完成" }
+    if call.cachedPresent, let cached = call.cached, let input = call.input, input > 0 {
+        return formatHit(cached: cached, input: input)
+    }
+    return "暂无数据"
 }
 
 private func sessionSingle(_ sessions: [SessionFigure]) -> RowFirst? {
@@ -527,15 +565,15 @@ private func sessionSingle(_ sessions: [SessionFigure]) -> RowFirst? {
     if (session.modelCalls ?? 0) > 1 || (session.numTurns ?? 0) > 1 { return nil }
     guard session.modelCalls == 1, session.numTurns == nil || session.numTurns == 1 else { return nil }
     if session.stopReason == "rate_limit", session.input == nil, !session.cachedPresent {
-        return RowFirst(headline: "限流", reason: "限流，没有用量")
+        return RowFirst(headline: "请求受限", reason: "limited")
     }
     if !session.cachedPresent {
-        return RowFirst(headline: "未知", reason: "第一次没有缓存数字")
+        return RowFirst(headline: "暂无数据", reason: "missing")
     }
     if let input = session.input, input > 0, let cached = session.cached {
-        return RowFirst(headline: formatHit(cached: cached, input: input), reason: "只有一次", input: input, cached: cached)
+        return RowFirst(headline: formatHit(cached: cached, input: input), reason: "hit", input: input, cached: cached)
     }
-    return RowFirst(headline: "未知", reason: "第一次没有缓存数字")
+    return RowFirst(headline: "暂无数据", reason: "missing")
 }
 
 private func sessionLines(_ session: SessionFigure, index: Int, total: Int) -> [String] {

@@ -103,6 +103,18 @@ public struct SessionFigure: Equatable {
     }
 }
 
+public struct ShownRequest: Equatable, Identifiable {
+    public var id: String
+    public var label: String
+    public var value: String
+
+    public init(id: String, label: String, value: String) {
+        self.id = id
+        self.label = label
+        self.value = value
+    }
+}
+
 public struct TurnRow: Equatable, Identifiable {
     public var id: String
     public var promptIndex: Int
@@ -116,6 +128,11 @@ public struct TurnRow: Equatable, Identifiable {
     /// Set only when `headline` is the proven first request's own ratio.
     public var firstInput: Int?
     public var firstCached: Int?
+    public var caption: String?
+    public var imageCount: Int
+    public var toolCount: Int
+    public var didRewind: Bool
+    public var shownRequests: [ShownRequest]
     public var badges: [Badge]
     public var lines: [String]
     public var calls: [CallFigure]
@@ -132,6 +149,11 @@ public struct TurnRow: Equatable, Identifiable {
         firstReason: String = "",
         firstInput: Int? = nil,
         firstCached: Int? = nil,
+        caption: String? = nil,
+        imageCount: Int = 0,
+        toolCount: Int = 0,
+        didRewind: Bool = false,
+        shownRequests: [ShownRequest] = [],
         badges: [Badge],
         lines: [String],
         calls: [CallFigure],
@@ -147,6 +169,11 @@ public struct TurnRow: Equatable, Identifiable {
         self.firstReason = firstReason
         self.firstInput = firstInput
         self.firstCached = firstCached
+        self.caption = caption
+        self.imageCount = imageCount
+        self.toolCount = toolCount
+        self.didRewind = didRewind
+        self.shownRequests = shownRequests
         self.badges = badges
         self.lines = lines
         self.calls = calls
