@@ -16,7 +16,7 @@ final class CacheHitCoreTests: XCTestCase {
         ].joined(separator: "\n") + "\n", inode: 10)
         let snapshot = lab.poll()
         let turn = snapshot.turns[0]
-        XCTAssertEqual(turn.headline, "缓存未知")
+        XCTAssertEqual(turn.headline, "未知")
         XCTAssertEqual(turn.calls[0].cachedPresent, false)
         XCTAssertNil(turn.calls[0].cached)
         XCTAssertFalse(snapshot.visibleText.contains("0%"))
@@ -36,7 +36,7 @@ final class CacheHitCoreTests: XCTestCase {
         ].joined(separator: "\n") + "\n", inode: 10)
         let turn = lab.poll().turns[0]
         XCTAssertFalse(turn.calls[0].cachedPresent)
-        XCTAssertEqual(turn.headline, "缓存未知")
+        XCTAssertEqual(turn.headline, "未知")
     }
 
     func testGenuineCachedZero() {
@@ -117,10 +117,13 @@ final class CacheHitCoreTests: XCTestCase {
         XCTAssertEqual(calls.map(\.linkage), [.paired, .paired])
         XCTAssertEqual(calls.map(\.sequence), [1, 2])
         XCTAssertEqual(calls.map(\.cached), [0, 80])
-        XCTAssertEqual(snapshot.turns[0].headline, "合计 7.3%")
-        XCTAssertTrue(snapshot.visibleText.contains("输入 1100"))
-        XCTAssertTrue(snapshot.visibleText.contains("缓存 80"))
-        XCTAssertFalse(snapshot.visibleText.contains("4%"))
+        XCTAssertEqual(snapshot.turns[0].headline, "0%")
+        XCTAssertEqual(snapshot.turns[0].firstCached, 0)
+        XCTAssertEqual(snapshot.turns[0].calls[1].cached, 80)
+        XCTAssertEqual(snapshot.summary, "本段首呼 0%")
+        XCTAssertFalse(snapshot.faceText.contains("7.3%"))
+        XCTAssertFalse(snapshot.faceText.contains("合计"))
+        XCTAssertFalse(snapshot.faceText.contains("4%"))
         XCTAssertTrue(snapshot.visibleText.contains("未知清缓存仍可能发生"))
         assertHonest(snapshot)
     }
@@ -137,8 +140,9 @@ final class CacheHitCoreTests: XCTestCase {
         ].joined(separator: "\n") + "\n", inode: 10)
         let snapshot = lab.poll()
         XCTAssertEqual(snapshot.turns[0].headline, "100%")
-        XCTAssertTrue(snapshot.visibleText.contains("没有当成 0"))
-        XCTAssertFalse(snapshot.visibleText.contains("输入 110"))
+        XCTAssertEqual(snapshot.turns[0].firstCached, 10)
+        XCTAssertFalse(snapshot.turns[0].calls[1].cachedPresent)
+        XCTAssertFalse(snapshot.faceText.contains("输入 110"))
     }
 
     func testAggregateIsNotSplitAndNotMixedWithVertex() {
@@ -156,7 +160,10 @@ final class CacheHitCoreTests: XCTestCase {
         let snapshot = lab.poll()
         XCTAssertEqual(snapshot.turns[0].calls.count, 0)
         XCTAssertEqual(snapshot.turns[0].sessionFigures[0].modelCalls, 3)
-        XCTAssertEqual(snapshot.turns[0].headline, "合计 12.5%")
+        XCTAssertEqual(snapshot.turns[0].headline, "未知")
+        XCTAssertNil(snapshot.turns[0].firstInput)
+        XCTAssertFalse(snapshot.faceText.contains("12.5%"))
+        XCTAssertFalse(snapshot.faceText.contains("合计"))
         XCTAssertTrue(snapshot.visibleText.contains("不可拆"))
         XCTAssertTrue(snapshot.visibleText.contains("没有把合计拆成单次"))
         XCTAssertTrue(snapshot.visibleText.contains("没有 Vertex 最终出站指纹"))
@@ -190,7 +197,7 @@ final class CacheHitCoreTests: XCTestCase {
             completedChunk(stop: "rate_limit")
         ].joined(separator: "\n") + "\n", inode: 2)
         let snapshot = lab.poll()
-        XCTAssertEqual(snapshot.turns[0].headline, "限流 · 无用量")
+        XCTAssertEqual(snapshot.turns[0].headline, "限流")
         XCTAssertFalse(snapshot.visibleText.contains("0%"))
         XCTAssertFalse(snapshot.visibleText.contains("缓存 0"))
     }
@@ -204,7 +211,7 @@ final class CacheHitCoreTests: XCTestCase {
             vertexUsage(req: "req-429", turn: "7", prompt: 50, cached: nil, status: 429, conv: lab.session)
         ].joined(separator: "\n") + "\n", inode: 10)
         let snapshot = lab.poll()
-        XCTAssertEqual(snapshot.turns[0].headline, "限流 · 无可用命中率")
+        XCTAssertEqual(snapshot.turns[0].headline, "限流")
         XCTAssertTrue(snapshot.visibleText.contains("限流"))
         XCTAssertFalse(snapshot.visibleText.contains("0%"))
     }
@@ -214,7 +221,7 @@ final class CacheHitCoreTests: XCTestCase {
         lab.point()
         lab.write(lab.transcript, userChunk(index: 2, created: "2026-01-15T13:00:00Z", model: "example-model-a") + "\n", inode: 2)
         let snapshot = lab.poll()
-        XCTAssertEqual(snapshot.turns[0].headline, "进行中")
+        XCTAssertEqual(snapshot.turns[0].headline, "等待")
         XCTAssertTrue(snapshot.turns[0].calls.isEmpty)
     }
 
@@ -535,6 +542,170 @@ final class CacheHitCoreTests: XCTestCase {
         let lines = (1...4).map { userChunk(index: $0, created: "2026-01-15T14:0\($0):00Z", model: "example-model-a") }
         lab.write(lab.transcript, lines.joined(separator: "\n") + "\n", inode: 2)
         XCTAssertEqual(lab.poll().turns.map(\.promptIndex), [4, 3])
+    }
+
+    func testFirstCallZeroStaysZeroWhenLaterHits() {
+        let lab = Lab()
+        lab.point()
+        lab.write(lab.transcript, userChunk(index: 7, created: "2026-01-15T14:17:00Z", model: "example-model-a") + "\n", inode: 2)
+        lab.write("/runtime/vertex.jsonl", [
+            vertexPrefix(req: "req-first", turn: "7", diff: "first", conv: lab.session),
+            vertexUsage(req: "req-first", turn: "7", prompt: 100, cached: 0, conv: lab.session),
+            vertexPrefix(req: "req-first", turn: "7", diff: "tools", conv: lab.session),
+            vertexUsage(req: "req-first", turn: "7", prompt: 100, cached: 100, conv: lab.session)
+        ].joined(separator: "\n") + "\n", inode: 10)
+        let snapshot = lab.poll()
+        XCTAssertEqual(snapshot.turns[0].headline, "0%")
+        XCTAssertEqual(snapshot.turns[0].firstCached, 0)
+        XCTAssertEqual(snapshot.turns[0].calls[1].cached, 100)
+        XCTAssertEqual(snapshot.summary, "本段首呼 0%")
+        XCTAssertFalse(snapshot.faceText.contains("100%"))
+        XCTAssertFalse(snapshot.faceText.contains("合计"))
+    }
+
+    func testFirstCallMissingStaysUnknownWhenLaterHits() {
+        let lab = Lab()
+        lab.point()
+        lab.write(lab.transcript, userChunk(index: 7, created: "2026-01-15T14:17:00Z", model: "example-model-a") + "\n", inode: 2)
+        lab.write("/runtime/vertex.jsonl", [
+            vertexPrefix(req: "req-miss", turn: "7", diff: "none", conv: lab.session),
+            vertexUsage(req: "req-miss", turn: "7", prompt: 100, cached: nil, conv: lab.session),
+            vertexPrefix(req: "req-miss", turn: "7", diff: "none", conv: lab.session),
+            vertexUsage(req: "req-miss", turn: "7", prompt: 100, cached: 100, conv: lab.session)
+        ].joined(separator: "\n") + "\n", inode: 10)
+        let snapshot = lab.poll()
+        XCTAssertEqual(snapshot.turns[0].headline, "未知")
+        XCTAssertNil(snapshot.turns[0].firstCached)
+        XCTAssertEqual(snapshot.turns[0].calls[1].cached, 100)
+        XCTAssertFalse(snapshot.faceText.contains("100%"))
+        XCTAssertEqual(snapshot.summary, "本段首呼 未知")
+    }
+
+    func testEarlyRateLimitIsNotALaterSuccess() {
+        let lab = Lab()
+        lab.point()
+        lab.write(lab.transcript, userChunk(index: 7, created: "2026-01-15T14:17:00Z", model: "example-model-a") + "\n", inode: 2)
+        lab.write("/runtime/vertex.jsonl", [
+            vertexPrefix(req: "req-429", turn: "7", diff: "none", conv: lab.session),
+            vertexUsage(req: "req-429", turn: "7", prompt: 80, cached: nil, status: 429, conv: lab.session),
+            vertexPrefix(req: "req-429", turn: "7", diff: "none", conv: lab.session),
+            vertexUsage(req: "req-429", turn: "7", prompt: 80, cached: 80, conv: lab.session)
+        ].joined(separator: "\n") + "\n", inode: 10)
+        let snapshot = lab.poll()
+        XCTAssertEqual(snapshot.turns[0].headline, "限流")
+        XCTAssertFalse(snapshot.faceText.contains("100%"))
+        XCTAssertFalse(snapshot.faceText.contains("0%"))
+    }
+
+    func testSingleModelCallIsTheFirstRequest() {
+        let lab = Lab()
+        lab.point()
+        lab.write(lab.transcript, [
+            userChunk(index: 4, created: "2026-01-15T14:00:00Z", model: "example-model-a"),
+            completedChunk(usage: ["inputTokens": 100, "cachedReadTokens": 50, "modelCalls": 1, "numTurns": 1])
+        ].joined(separator: "\n") + "\n", inode: 2)
+        let snapshot = lab.poll()
+        XCTAssertEqual(snapshot.turns[0].headline, "50%")
+        XCTAssertEqual(snapshot.turns[0].firstInput, 100)
+        XCTAssertEqual(snapshot.turns[0].firstCached, 50)
+        XCTAssertEqual(snapshot.summary, "本段首呼 50%")
+    }
+
+    func testPartialLogDoesNotUseTheFirstSurvivingCall() {
+        let files = MemoryFiles()
+        let zone = TimeZone(secondsFromGMT: 8 * 3600)!
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let now = calendar.date(from: DateComponents(year: 2026, month: 1, day: 15, hour: 23))!
+        let root = "/runtime"
+        let transcript = "/runtime/state/noxbuild-room/.grok-home/.grok/sessions/ws/s/updates.jsonl"
+        let session = "11111111-2222-4333-8444-555555555555"
+        let pointer = jsonLine([
+            "session_id": session,
+            "transcript_path": transcript,
+            "updated_at": "2026-01-15T16:00:00Z"
+        ])
+        files.files["/runtime/state/active_session.json"] = MemoryFiles.File(inode: 1, data: Data(pointer.utf8))
+        files.files[transcript] = MemoryFiles.File(inode: 2, data: Data((userChunk(index: 7, created: "2026-01-15T14:17:00Z", model: "example-model-a") + "\n").utf8))
+        let early = [
+            vertexPrefix(req: "req-early", turn: "7", diff: "first", conv: session),
+            vertexUsage(req: "req-early", turn: "7", prompt: 10, cached: 0, conv: session)
+        ].joined(separator: "\n") + "\n"
+        let later = [
+            vertexPrefix(req: "req-later", turn: "7", diff: "tools", conv: session),
+            vertexUsage(req: "req-later", turn: "7", prompt: 10, cached: 10, conv: session)
+        ].joined(separator: "\n") + "\n"
+        files.files["/runtime/vertex.jsonl"] = MemoryFiles.File(inode: 10, data: Data((early + later).utf8))
+        files.files["/runtime/finger.jsonl"] = MemoryFiles.File(inode: 11, data: Data())
+        files.files["/runtime/siwc.log"] = MemoryFiles.File(inode: 12, data: Data())
+        let tail = later.utf8.count + 1
+        let engine = CacheEngine(
+            config: CacheConfig(runtimeRoot: root, vertexPath: "/runtime/vertex.jsonl", fingerprintPath: "/runtime/finger.jsonl", siwcPath: "/runtime/siwc.log", synthetic: false, timeZone: zone),
+            limits: CacheLimits(initialTailBytes: tail, fingerprintInitialTailBytes: 8_000_000),
+            store: files
+        )
+        let snapshot = engine.poll(now: now)
+        XCTAssertEqual(snapshot.turns.count, 1)
+        XCTAssertEqual(snapshot.turns[0].headline, "未知")
+        XCTAssertTrue(snapshot.turns[0].calls.allSatisfy(\.partial))
+        XCTAssertFalse(snapshot.faceText.contains("100%"))
+        XCTAssertFalse(snapshot.faceText.contains("0%"))
+    }
+
+    func testPendingBecomesTheFirstUsage() {
+        let lab = Lab()
+        lab.point()
+        lab.write(lab.transcript, userChunk(index: 7, created: "2026-01-15T14:17:00Z", model: "example-model-a") + "\n", inode: 2)
+        XCTAssertEqual(lab.poll().turns[0].headline, "等待")
+        let existing = lab.files.files["/runtime/vertex.jsonl"]?.data ?? Data()
+        let added = [
+            vertexPrefix(req: "req-live", turn: "7", diff: "first", conv: lab.session),
+            vertexUsage(req: "req-live", turn: "7", prompt: 100, cached: 40, conv: lab.session)
+        ].joined(separator: "\n") + "\n"
+        lab.files.files["/runtime/vertex.jsonl"] = MemoryFiles.File(inode: 10, data: existing + Data(added.utf8))
+        let snapshot = lab.poll()
+        XCTAssertEqual(snapshot.turns[0].headline, "40%")
+        XCTAssertEqual(snapshot.turns[0].firstCached, 40)
+    }
+
+    func testRewindReusesTheIndexWithoutMerging() {
+        let lab = Lab()
+        lab.point()
+        lab.write(lab.transcript, [
+            userChunk(index: 7, created: "2026-01-15T14:00:00Z", model: "example-model-a"),
+            completedChunk(usage: ["inputTokens": 100, "cachedReadTokens": 10, "modelCalls": 1]),
+            rewindChunk(target: 7),
+            userChunk(index: 7, created: "2026-01-15T14:30:00Z", model: "example-model-b")
+        ].joined(separator: "\n") + "\n", inode: 2)
+        let snapshot = lab.poll()
+        XCTAssertEqual(snapshot.turns.map(\.identityText), ["#7·2", "#7"])
+        XCTAssertEqual(snapshot.turns.map(\.headline), ["等待", "10%"])
+        XCTAssertEqual(Set(snapshot.turns.map(\.id)).count, 2)
+        XCTAssertEqual(snapshot.turns[1].firstCached, 10)
+        XCTAssertNil(snapshot.turns[0].firstCached)
+    }
+
+    func testOverallWeightsFirstCallsAndSkipsUnknown() {
+        let lab = Lab()
+        lab.point()
+        lab.write(lab.transcript, [
+            userChunk(index: 1, created: "2026-01-15T14:00:00Z", model: "example-model-a"),
+            userChunk(index: 2, created: "2026-01-15T14:05:00Z", model: "example-model-a")
+        ].joined(separator: "\n") + "\n", inode: 2)
+        lab.write("/runtime/vertex.jsonl", [
+            vertexPrefix(req: "req-a", turn: "1", diff: "first", conv: lab.session),
+            vertexUsage(req: "req-a", turn: "1", prompt: 100, cached: 0, conv: lab.session),
+            vertexPrefix(req: "req-b", turn: "2", diff: "none", conv: lab.session),
+            vertexUsage(req: "req-b", turn: "2", prompt: 300, cached: nil, conv: lab.session),
+            vertexPrefix(req: "req-b", turn: "2", diff: "tools", conv: lab.session),
+            vertexUsage(req: "req-b", turn: "2", prompt: 300, cached: 300, conv: lab.session)
+        ].joined(separator: "\n") + "\n", inode: 10)
+        let snapshot = lab.poll()
+        XCTAssertEqual(snapshot.turns.first { $0.promptIndex == 1 }?.headline, "0%")
+        XCTAssertEqual(snapshot.turns.first { $0.promptIndex == 2 }?.headline, "未知")
+        XCTAssertEqual(snapshot.summary, "本段首呼 0% · 1 条未知")
+        XCTAssertFalse(snapshot.faceText.contains("50%"))
+        XCTAssertFalse(snapshot.summary.contains("100%"))
     }
 
     func testWaitingForSessionIsNotSampleData() {

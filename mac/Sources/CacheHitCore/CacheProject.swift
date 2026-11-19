@@ -1,7 +1,18 @@
 import Foundation
 
+struct TurnKey: Hashable, Comparable {
+    var promptIndex: Int
+    var generation: Int
+
+    static func < (lhs: TurnKey, rhs: TurnKey) -> Bool {
+        if lhs.promptIndex != rhs.promptIndex { return lhs.promptIndex < rhs.promptIndex }
+        return lhs.generation < rhs.generation
+    }
+}
+
 struct SessionTurn {
     var promptIndex: Int
+    var generation: Int = 1
     var createdAt: Date?
     var modelID: String?
     var modelChanged = false
@@ -21,7 +32,8 @@ func projectCache(
     banner: String?,
     sessionID: String?,
     sessionUpdated: Date?,
-    turns: [Int: SessionTurn],
+    turns: [TurnKey: SessionTurn],
+    order: [TurnKey] = [],
     orphans: [CompletionRecord] = [],
     vertex: [ObserveRec],
     fingerprints: [ObserveRec],
@@ -30,7 +42,8 @@ func projectCache(
     now: Date,
     zone: TimeZone
 ) -> CacheSnapshot {
-    let known = Set(turns.keys)
+    let generationCount = Dictionary(grouping: turns.keys, by: \.promptIndex).mapValues(\.count)
+    let known = Set(generationCount.filter { $0.value == 1 }.keys)
     let vertexDrafts = pairVertex(vertex)
     let fingerDrafts = fingerprintDrafts(fingerprints)
     var byTurn: [Int: [DraftCall]] = [:]
@@ -64,12 +77,13 @@ func projectCache(
         }
     }
 
-    let ordered = turns.keys.sorted()
+    let ordered = order.isEmpty ? turns.keys.sorted() : order
     var rows: [TurnRow] = []
-    for (position, index) in ordered.enumerated() {
-        guard let turn = turns[index] else { continue }
+    for (position, key) in ordered.enumerated() {
+        guard let turn = turns[key] else { continue }
         let previous = position > 0 ? turns[ordered[position - 1]] : nil
-        rows.append(renderTurn(turn, calls: byTurn[index] ?? [], previous: previous, now: now, zone: zone))
+        let calls = generationCount[key.promptIndex] == 1 ? (byTurn[key.promptIndex] ?? []) : []
+        rows.append(renderTurn(turn, calls: calls, previous: previous, now: now, zone: zone))
     }
     rows.reverse()
 
@@ -110,23 +124,18 @@ func projectCache(
             statusNotes.append("8317 比当前会话旧")
         }
     }
-    let status = statusNotes.isEmpty ? "已读取" : statusNotes.joined(separator: " · ")
-    let summary: String
-    if let newest = rows.first {
-        summary = "最近 #\(newest.promptIndex) · \(newest.headline)"
-    } else if phase == .notConfigured {
-        summary = "未配置"
-    } else {
-        summary = "等待"
-    }
+    let diagnostics = statusNotes.joined(separator: " · ")
+    let summary = firstCallSummary(rows: rows, phase: phase)
+    let face = faceCopy(summary: summary, rows: rows)
     let snapshot = CacheSnapshot(
         phase: phase,
         banner: banner,
         summary: summary,
-        status: status,
+        status: rows.isEmpty ? diagnostics : "",
         turns: rows,
         unlinked: unlinked,
-        footer: CacheSnapshot.footerText,
+        footer: "",
+        faceText: face,
         visibleText: ""
     )
     return CacheSnapshot(
@@ -137,8 +146,27 @@ func projectCache(
         turns: snapshot.turns,
         unlinked: snapshot.unlinked,
         footer: snapshot.footer,
-        visibleText: visibleCopy(snapshot)
+        faceText: snapshot.faceText,
+        visibleText: visibleCopy(snapshot, diagnostics: diagnostics)
     )
+}
+
+private func firstCallSummary(rows: [TurnRow], phase: CachePhase) -> String {
+    if phase == .notConfigured { return "未配置" }
+    if rows.isEmpty { return phase == .waiting ? "等待" : "本段首呼 未知" }
+    let known = rows.compactMap { row -> KnownHit? in
+        guard row.headline.hasSuffix("%"), let hit = knownHit(from: row) else { return nil }
+        return hit
+    }
+    let unknown = rows.filter { $0.headline == "未知" }.count
+    guard let hit = weightedHit(known) else { return "本段首呼 未知" }
+    if unknown > 0 { return "本段首呼 \(hit.text) · \(unknown) 条未知" }
+    return "本段首呼 \(hit.text)"
+}
+
+private func knownHit(from row: TurnRow) -> KnownHit? {
+    guard let input = row.firstInput, input > 0, let cached = row.firstCached else { return nil }
+    return KnownHit(input: input, cached: cached)
 }
 
 func syntheticSnapshot(now: Date, zone: TimeZone) -> CacheSnapshot {
@@ -200,7 +228,8 @@ func syntheticSnapshot(now: Date, zone: TimeZone) -> CacheSnapshot {
         banner: "合成预览 · 不是本机数据",
         sessionID: "11111111-2222-4333-8444-555555555555",
         sessionUpdated: created,
-        turns: [7: turn],
+        turns: [TurnKey(promptIndex: 7, generation: 1): turn],
+        order: [TurnKey(promptIndex: 7, generation: 1)],
         orphans: [],
         vertex: [prefix, usage],
         fingerprints: [],
@@ -313,7 +342,8 @@ private func merged(_ prefix: ObserveRec, _ usage: ObserveRec, sequence: Int) ->
         hadFirstDiff: prefix.hadFirstDiff,
         imageCount: prefix.imageCount,
         status: usage.status,
-        order: prefix.order
+        order: prefix.order,
+        partial: prefix.partial || usage.partial
     )
     return DraftCall(conv: prefix.conv, turn: prefix.turn, figure: figure)
 }
@@ -340,7 +370,8 @@ private func draft(
         hadFirstDiff: hasPrefix && record.hadFirstDiff,
         imageCount: hasPrefix ? record.imageCount : nil,
         status: hasUsage ? record.status : nil,
-        order: record.order
+        order: record.order,
+        partial: record.partial
     )
     return DraftCall(conv: record.conv, turn: record.turn, figure: figure)
 }
@@ -371,14 +402,6 @@ private func renderTurn(
     }
     var lines: [String] = []
     lines.append(contentsOf: figures.flatMap(callLines))
-    let known = figures.filter(isKnownVertexHit)
-    if known.count > 1, let hit = weightedHit(known.map { KnownHit(input: $0.input ?? 0, cached: $0.cached ?? 0) }) {
-        lines.append("Vertex 合计 · 输入 \(hit.input) · 缓存 \(hit.cached) · \(hit.text)")
-    }
-    let unknownCached = figures.filter { $0.source == "vertex" && $0.linkage == .paired && $0.hasUsage && !$0.cachedPresent && ($0.status == nil || $0.status == 200) }
-    if !unknownCached.isEmpty, !known.isEmpty {
-        lines.append("其中 \(unknownCached.count) 次缓存未知，没有当成 0")
-    }
     if figures.contains(where: { $0.linkage == .ambiguous }) {
         lines.append("有对应关系不明的记录，没有算进合计")
     }
@@ -428,14 +451,20 @@ private func renderTurn(
     lines.append(contentsOf: badges.map(\.detail))
 
     let timeText = turn.createdAt.map { formatLocal($0, zone: zone, now: now) } ?? "时间未知"
-    let modelText = turn.modelID ?? "模型未知"
+    let modelText = turn.modelID ?? ""
     let pending = turn.completions.isEmpty && !figures.contains(where: { $0.hasUsage })
+    let first = rowFirst(calls: figures, sessions: sessions, pending: pending)
+    if !first.reason.isEmpty { lines.insert(first.reason, at: 0) }
     return TurnRow(
-        id: "turn-\(turn.promptIndex)",
+        id: "turn-\(turn.promptIndex)-\(turn.generation)",
         promptIndex: turn.promptIndex,
+        generation: turn.generation,
         timeText: timeText,
         modelText: modelText,
-        headline: headline(sessions: sessions, calls: figures, pending: pending),
+        headline: first.headline,
+        firstReason: first.reason,
+        firstInput: first.input,
+        firstCached: first.cached,
         badges: badges,
         lines: lines,
         calls: figures,
@@ -443,41 +472,70 @@ private func renderTurn(
     )
 }
 
-private func isKnownVertexHit(_ call: CallFigure) -> Bool {
-    call.source == "vertex"
-        && call.linkage == .paired
-        && call.cachedPresent
-        && (call.input ?? 0) > 0
-        && (call.status == nil || call.status == 200)
+private struct RowFirst {
+    var headline: String
+    var reason: String
+    var input: Int?
+    var cached: Int?
 }
 
-private func headline(sessions: [SessionFigure], calls: [CallFigure], pending: Bool) -> String {
-    let known = calls.filter(isKnownVertexHit)
-    if known.count == 1, let input = known[0].input, let cached = known[0].cached {
-        return formatHit(cached: cached, input: input)
-    }
-    if known.count > 1, let hit = weightedHit(known.map { KnownHit(input: $0.input ?? 0, cached: $0.cached ?? 0) }) {
-        return "合计 \(hit.text)"
-    }
-    if calls.contains(where: { $0.status == 429 }), known.isEmpty {
-        return "限流 · 无可用命中率"
-    }
-    if sessions.count == 1 {
-        let session = sessions[0]
-        if session.stopReason == "rate_limit", session.input == nil, !session.cachedPresent {
-            return "限流 · 无用量"
+private func rowFirst(calls: [CallFigure], sessions: [SessionFigure], pending: Bool) -> RowFirst {
+    let vertex = calls.filter { $0.source == "vertex" }.sorted { $0.order < $1.order }
+    let blocked = vertex.contains { $0.partial || $0.linkage == .ambiguous || $0.linkage == .unkeyed }
+    if let earliest = vertex.first, !blocked {
+        if earliest.linkage == .pendingPrefix {
+            return RowFirst(headline: "等待", reason: "第一次还没有用量")
         }
-        if session.stopReason == "cancelled", session.input == nil, !session.cachedPresent {
-            return "未完成 · 无用量"
+        if earliest.linkage == .paired {
+            if earliest.status == 429 {
+                return RowFirst(headline: "限流", reason: "第一次被限流")
+            }
+            if let status = earliest.status, status != 200 {
+                return RowFirst(headline: "出错", reason: "第一次没有完成")
+            }
+            if !earliest.cachedPresent {
+                return RowFirst(headline: "未知", reason: "第一次没有缓存数字")
+            }
+            if let input = earliest.input, input > 0, let cached = earliest.cached {
+                return RowFirst(headline: formatHit(cached: cached, input: input), reason: "第一次", input: input, cached: cached)
+            }
+            return RowFirst(headline: "未知", reason: "第一次没有缓存数字")
         }
-        if session.cachedPresent, let cached = session.cached, let input = session.input, input > 0 {
-            let text = formatHit(cached: cached, input: input)
-            let multi = (session.modelCalls ?? 0) > 1 || (session.numTurns ?? 0) > 1
-            return multi ? "合计 \(text)" : text
-        }
+        return RowFirst(headline: "未知", reason: "第一次对不上")
     }
-    if pending { return "进行中" }
-    return "缓存未知"
+    if vertex.contains(where: \.partial) {
+        if let single = sessionSingle(sessions) { return single }
+        return RowFirst(headline: "未知", reason: "日志从半截开始")
+    }
+    if blocked {
+        return RowFirst(headline: "未知", reason: "第一次对不上")
+    }
+    if let single = sessionSingle(sessions) { return single }
+    if sessions.contains(where: { ($0.modelCalls ?? 0) > 1 || ($0.numTurns ?? 0) > 1 }) {
+        return RowFirst(headline: "未知", reason: "多次合计不是第一次")
+    }
+    if sessions.count == 1, sessions[0].stopReason == "rate_limit", sessions[0].input == nil, !sessions[0].cachedPresent {
+        return RowFirst(headline: "限流", reason: "限流，没有用量")
+    }
+    if pending { return RowFirst(headline: "等待", reason: "") }
+    return RowFirst(headline: "未知", reason: "看不到第一次")
+}
+
+private func sessionSingle(_ sessions: [SessionFigure]) -> RowFirst? {
+    guard sessions.count == 1 else { return nil }
+    let session = sessions[0]
+    if (session.modelCalls ?? 0) > 1 || (session.numTurns ?? 0) > 1 { return nil }
+    guard session.modelCalls == 1, session.numTurns == nil || session.numTurns == 1 else { return nil }
+    if session.stopReason == "rate_limit", session.input == nil, !session.cachedPresent {
+        return RowFirst(headline: "限流", reason: "限流，没有用量")
+    }
+    if !session.cachedPresent {
+        return RowFirst(headline: "未知", reason: "第一次没有缓存数字")
+    }
+    if let input = session.input, input > 0, let cached = session.cached {
+        return RowFirst(headline: formatHit(cached: cached, input: input), reason: "只有一次", input: input, cached: cached)
+    }
+    return RowFirst(headline: "未知", reason: "第一次没有缓存数字")
 }
 
 private func sessionLines(_ session: SessionFigure, index: Int, total: Int) -> [String] {
@@ -623,17 +681,21 @@ private func siwcGroup(_ rows: [SIWCRow]) -> UnlinkedGroup {
     return UnlinkedGroup(id: "siwc", title: "未关联 · GPT", lines: lines, calls: calls, requestIDs: rows.map(\.requestID))
 }
 
-private func visibleCopy(_ snapshot: CacheSnapshot) -> String {
+private func faceCopy(summary: String, rows: [TurnRow]) -> String {
+    var parts = [summary]
+    for turn in rows {
+        parts.append("\(turn.timeText) \(turn.identityText) \(turn.modelText) \(turn.headline)")
+    }
+    return parts.joined(separator: "\n")
+}
+
+private func visibleCopy(_ snapshot: CacheSnapshot, diagnostics: String) -> String {
     var parts: [String] = []
     if let banner = snapshot.banner { parts.append(banner) }
     parts.append("缓存")
-    parts.append(snapshot.summary)
-    parts.append(snapshot.status)
+    parts.append(snapshot.faceText)
+    if !diagnostics.isEmpty { parts.append(diagnostics) }
     for turn in snapshot.turns {
-        parts.append(turn.timeText)
-        parts.append("#\(turn.promptIndex)")
-        parts.append(turn.modelText)
-        parts.append(turn.headline)
         parts.append(contentsOf: turn.badges.map(\.title))
         parts.append(contentsOf: turn.lines)
     }
@@ -641,6 +703,5 @@ private func visibleCopy(_ snapshot: CacheSnapshot) -> String {
         parts.append(group.title)
         parts.append(contentsOf: group.lines)
     }
-    parts.append(snapshot.footer)
     return parts.joined(separator: "\n")
 }

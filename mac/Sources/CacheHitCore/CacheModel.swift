@@ -41,6 +41,7 @@ public struct CallFigure: Equatable, Identifiable {
     public var imageCount: Int?
     public var status: Int?
     public var order: Int
+    public var partial: Bool
 
     public init(
         id: String,
@@ -56,7 +57,8 @@ public struct CallFigure: Equatable, Identifiable {
         hadFirstDiff: Bool,
         imageCount: Int?,
         status: Int?,
-        order: Int
+        order: Int,
+        partial: Bool = false
     ) {
         self.id = id
         self.sequence = sequence
@@ -72,6 +74,7 @@ public struct CallFigure: Equatable, Identifiable {
         self.imageCount = imageCount
         self.status = status
         self.order = order
+        self.partial = partial
     }
 }
 
@@ -103,9 +106,16 @@ public struct SessionFigure: Equatable {
 public struct TurnRow: Equatable, Identifiable {
     public var id: String
     public var promptIndex: Int
+    public var generation: Int
+    public var identityText: String
     public var timeText: String
     public var modelText: String
+    /// First model request only. Later tool calls stay in `lines`.
     public var headline: String
+    public var firstReason: String
+    /// Set only when `headline` is the proven first request's own ratio.
+    public var firstInput: Int?
+    public var firstCached: Int?
     public var badges: [Badge]
     public var lines: [String]
     public var calls: [CallFigure]
@@ -114,9 +124,14 @@ public struct TurnRow: Equatable, Identifiable {
     public init(
         id: String,
         promptIndex: Int,
+        generation: Int = 1,
+        identityText: String? = nil,
         timeText: String,
         modelText: String,
         headline: String,
+        firstReason: String = "",
+        firstInput: Int? = nil,
+        firstCached: Int? = nil,
         badges: [Badge],
         lines: [String],
         calls: [CallFigure],
@@ -124,9 +139,14 @@ public struct TurnRow: Equatable, Identifiable {
     ) {
         self.id = id
         self.promptIndex = promptIndex
+        self.generation = generation
+        self.identityText = identityText ?? (generation > 1 ? "#\(promptIndex)·\(generation)" : "#\(promptIndex)")
         self.timeText = timeText
         self.modelText = modelText
         self.headline = headline
+        self.firstReason = firstReason
+        self.firstInput = firstInput
+        self.firstCached = firstCached
         self.badges = badges
         self.lines = lines
         self.calls = calls
@@ -159,6 +179,8 @@ public struct CacheSnapshot: Equatable {
     public var turns: [TurnRow]
     public var unlinked: [UnlinkedGroup]
     public var footer: String
+    /// What the closed drawer shows: overall scope and one first-call result per message.
+    public var faceText: String
     public var visibleText: String
 
     public init(
@@ -169,6 +191,7 @@ public struct CacheSnapshot: Equatable {
         turns: [TurnRow],
         unlinked: [UnlinkedGroup],
         footer: String,
+        faceText: String = "",
         visibleText: String
     ) {
         self.phase = phase
@@ -178,6 +201,7 @@ public struct CacheSnapshot: Equatable {
         self.turns = turns
         self.unlinked = unlinked
         self.footer = footer
+        self.faceText = faceText
         self.visibleText = visibleText
     }
 
@@ -193,6 +217,7 @@ public struct CacheSnapshot: Equatable {
             turns: [],
             unlinked: [],
             footer: footerText,
+            faceText: [summary, status].filter { !$0.isEmpty }.joined(separator: "\n"),
             visibleText: visible
         )
     }

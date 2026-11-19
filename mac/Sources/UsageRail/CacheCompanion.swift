@@ -8,6 +8,7 @@ final class CacheCompanionModel: ObservableObject {
     @Published var snapshot = CacheSnapshot.empty(phase: .notConfigured, summary: "未配置", status: "未配置运行目录")
     @Published var expanded = false
     @Published var openTurnID: String?
+    @Published var showUnlinked = false
 }
 
 @MainActor
@@ -199,24 +200,32 @@ private struct CacheDrawerView: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Seam.hot)
                 }
-                Text(model.snapshot.status)
-                    .font(.system(size: 9))
-                    .foregroundStyle(Seam.blush.opacity(0.85))
-                    .fixedSize(horizontal: false, vertical: true)
+                if model.snapshot.turns.isEmpty, !model.snapshot.status.isEmpty {
+                    Text(model.snapshot.status)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Seam.blush.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
                         ForEach(model.snapshot.turns) { turn in
                             turnRow(turn)
                         }
-                        ForEach(model.snapshot.unlinked) { group in
-                            unlinked(group)
+                        if !model.snapshot.unlinked.isEmpty {
+                            Button(model.showUnlinked ? "收起" : "未对上 \(model.snapshot.unlinked.count)") {
+                                model.showUnlinked.toggle()
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 9))
+                            .foregroundStyle(Seam.blush.opacity(0.8))
+                            if model.showUnlinked {
+                                ForEach(model.snapshot.unlinked) { group in
+                                    unlinked(group)
+                                }
+                            }
                         }
                     }
                 }
-                Text(model.snapshot.footer)
-                    .font(.system(size: 8))
-                    .foregroundStyle(Seam.cream.opacity(0.55))
-                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -239,8 +248,8 @@ private struct CacheDrawerView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Seam.cream)
             Text(model.snapshot.summary)
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundStyle(Seam.blush)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(Seam.cream)
                 .monospacedDigit()
         }
     }
@@ -251,26 +260,23 @@ private struct CacheDrawerView: View {
             Button {
                 model.openTurnID = open ? nil : turn.id
             } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("\(turn.timeText)  #\(turn.promptIndex)  \(turn.modelText)")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Seam.cream)
-                    Text(turn.headline)
-                        .font(.system(size: 10, design: .rounded))
-                        .foregroundStyle(Seam.blush)
-                        .monospacedDigit()
-                    if !turn.badges.isEmpty {
-                        HStack(spacing: 4) {
-                            ForEach(turn.badges) { badge in
-                                Text(badge.title)
-                                    .font(.system(size: 8, weight: .medium))
-                                    .foregroundStyle(Seam.cream)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Capsule().fill(Seam.hot.opacity(0.35)))
-                            }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("\(turn.timeText)  \(turn.identityText)")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Seam.cream)
+                        if !turn.modelText.isEmpty {
+                            Text(turn.modelText)
+                                .font(.system(size: 8))
+                                .foregroundStyle(Seam.blush.opacity(0.75))
+                                .lineLimit(1)
                         }
                     }
+                    Spacer(minLength: 4)
+                    Text(turn.headline)
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundStyle(turn.headline == "未知" || turn.headline == "等待" ? Seam.blush : Seam.cream)
+                        .monospacedDigit()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

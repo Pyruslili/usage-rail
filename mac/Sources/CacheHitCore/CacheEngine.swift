@@ -12,9 +12,10 @@ public final class CacheEngine {
     private var sessionID: String?
     private var sessionUpdated: Date?
     private var sessionNote: String?
-    private var turns: [Int: SessionTurn] = [:]
-    private var order: [Int] = []
+    private var turns: [TurnKey: SessionTurn] = [:]
+    private var order: [TurnKey] = []
     private var pendingRewind: Set<Int> = []
+    private var reopenIndex: Set<Int> = []
     private var vertex: [ObserveRec] = []
     private var fingerprints: [ObserveRec] = []
     private var siwc: [SIWCRow] = []
@@ -58,6 +59,7 @@ public final class CacheEngine {
                 turns.removeAll()
                 order.removeAll()
                 pendingRewind.removeAll()
+                reopenIndex.removeAll()
                 orphans.removeAll()
             }
             if batch.truncated { sawTruncate = true }
@@ -73,6 +75,7 @@ public final class CacheEngine {
             records: &vertex,
             missing: &vertexMissing,
             unreadable: &vertexUnreadable,
+            markPartialOnTail: true,
             parse: parseVertexLine
         )
         ingestObserve(
@@ -105,6 +108,7 @@ public final class CacheEngine {
             sessionID: sessionID,
             sessionUpdated: sessionUpdated,
             turns: turns,
+            order: order,
             orphans: orphans,
             vertex: vertex,
             fingerprints: fingerprints,
@@ -153,6 +157,7 @@ public final class CacheEngine {
             turns.removeAll()
             order.removeAll()
             pendingRewind.removeAll()
+            reopenIndex.removeAll()
             orphans.removeAll()
             updatesTail = LineTail(path: transcript, store: store, initialTailBytes: limits.initialTailBytes)
         }
@@ -168,6 +173,7 @@ public final class CacheEngine {
         turns.removeAll()
         order.removeAll()
         pendingRewind.removeAll()
+        reopenIndex.removeAll()
         orphans.removeAll()
         sessionNote = note
     }
@@ -188,10 +194,15 @@ public final class CacheEngine {
     private func apply(_ event: UpdateEvent) {
         switch event {
         case .user(let index, let created, let model):
-            if turns[index] == nil {
-                turns[index] = SessionTurn(promptIndex: index, createdAt: created, modelID: model)
-                order.append(index)
-            } else if var turn = turns[index] {
+            let latest = order.last { $0.promptIndex == index }
+            let closed = latest.flatMap { turns[$0]?.completions.isEmpty == false } ?? false
+            if latest == nil || closed || reopenIndex.contains(index) {
+                reopenIndex.remove(index)
+                let generation = (latest?.generation ?? 0) + 1
+                let key = TurnKey(promptIndex: index, generation: generation)
+                turns[key] = SessionTurn(promptIndex: index, generation: generation, createdAt: created, modelID: model)
+                order.append(key)
+            } else if let latest, var turn = turns[latest] {
                 if let created {
                     if let existing = turn.createdAt {
                         if created < existing { turn.createdAt = created }
@@ -203,18 +214,19 @@ public final class CacheEngine {
                     if let existing = turn.modelID, existing != model { turn.modelChanged = true }
                     if turn.modelID == nil { turn.modelID = model }
                 }
-                turns[index] = turn
+                turns[latest] = turn
             }
-            if pendingRewind.contains(index) {
-                turns[index]?.sawRewind = true
+            if pendingRewind.contains(index), let key = order.last(where: { $0.promptIndex == index }) {
+                turns[key]?.sawRewind = true
                 pendingRewind.remove(index)
             }
         case .tool:
             guard let last = order.last else { return }
             turns[last]?.sawTool = true
         case .rewind(let target):
-            if turns[target] != nil {
-                turns[target]?.sawRewind = true
+            reopenIndex.insert(target)
+            if let key = order.last(where: { $0.promptIndex == target }) {
+                turns[key]?.sawRewind = true
             } else {
                 pendingRewind.insert(target)
             }
@@ -234,6 +246,7 @@ public final class CacheEngine {
         records: inout [ObserveRec],
         missing: inout Bool,
         unreadable: inout Bool,
+        markPartialOnTail: Bool = false,
         parse: (String) -> ParseOutcome<ObserveRec>
     ) {
         if tail == nil {
@@ -251,6 +264,9 @@ public final class CacheEngine {
             case .value(var record):
                 sequence += 1
                 record.order = sequence
+                if markPartialOnTail && batch.openedAtTail {
+                    record.partial = true
+                }
                 records.append(record)
             case .ignore:
                 break

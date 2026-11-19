@@ -199,6 +199,6 @@ func assertHonest(_ snapshot: CacheSnapshot, file: StaticString = #filePath, lin
     for phrase in ["没有本地改动", "因为", "导致", "所以未命中", "证明", "TTL 已", "TTL 没", "未过期", "ab12cd34ef", "SECRET_BODY", "secret.example", "SECRET_TOOL", "SECRET_TITLE"] {
         XCTAssertFalse(text.contains(phrase), "leaked or overclaimed [\(phrase)] in \(text)", file: file, line: line)
     }
-    XCTAssertTrue(text.contains("不是原因"), file: file, line: line)
-    XCTAssertTrue(text.contains("不能用来判断 TTL") || text.contains("间隔不能用来判断 TTL"), file: file, line: line)
+    XCTAssertFalse(snapshot.faceText.contains("合计"), file: file, line: line)
+    XCTAssertFalse(snapshot.faceText.contains("不可拆"), file: file, line: line)
 }

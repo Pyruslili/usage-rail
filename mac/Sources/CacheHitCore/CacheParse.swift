@@ -48,6 +48,8 @@ struct ObserveRec {
     var cachedPresent: Bool
     var status: Int?
     var order: Int
+    /// True when this record came from a log opened mid-file. It cannot prove the turn's first request.
+    var partial: Bool = false
 }
 
 struct SIWCRow {
